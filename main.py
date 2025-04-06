@@ -6,12 +6,15 @@ from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.responses import StreamingResponse
 from db import MockDB
 from typing import Optional
+from os import getenv
 
 # ---------------------- 服务端实现 ----------------------
 
 app = FastAPI()
 db = MockDB()
-db.users["xbzecxb114514"] = "71cb529d-af0d-4999-8ede-394292ae4999"  # 测试用户sessionToken,需要手动添加
+db.users[getenv("PHIGROS_TEST_TOKEN")] = "71cb529d-af0d-4999-8ede-394292ae4999"  # 手动添加测试用户
+del getenv  # 删除环境变量获取函数
+
 # ---------------------- 辅助函数 ----------------------
 def decode_base64_key(encoded_key: str) -> str:
     try:
@@ -66,6 +69,7 @@ async def create_game_save(request: Request):
         "objectId": str(uuid.uuid4()),
         "createdAt": datetime.utcnow().isoformat() + "Z",
         "updatedAt": datetime.utcnow().isoformat() + "Z",
+        "modifiedAt": datetime.utcnow().isoformat() + "Z",
         **data
     }
     db.create_game_save(user_id, new_save)
@@ -74,9 +78,12 @@ async def create_game_save(request: Request):
 @app.put("/1.1/classes/_GameSave/{object_id}")
 async def update_game_save(object_id: str, request: Request):
     data = await request.json()
+    current_time = datetime.utcnow().isoformat() + "Z"
+    data["updatedAt"] = current_time
+    data["modifiedAt"] = current_time
     if not db.update_game_save(object_id, data):
         raise HTTPException(404, "Object not found")
-    return {"updatedAt": datetime.utcnow().isoformat() + "Z"}
+    return {"updatedAt": current_time}
 
 @app.post("/1.1/fileTokens")
 async def create_file_token(request: Request):
