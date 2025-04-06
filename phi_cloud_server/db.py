@@ -1,78 +1,19 @@
-from abc import ABC, abstractmethod
-from typing import Optional, Dict, List
-from datetime import datetime
-import time
+from typing import Dict, List, Optional
 
-class Database(ABC):
-    @abstractmethod
-    def get_user_id(self, session_token: str) -> Optional[str]:
-        pass
+from pydantic import BaseModel
 
-    # Game Saves 相关方法
-    @abstractmethod
-    def get_all_game_saves(self, user_id: str) -> List[Dict]:
-        pass
+from phi_cloud_server.models import Database
+from phi_cloud_server.utils import get_utc_iso
 
-    @abstractmethod
-    def create_game_save(self, user_id: str, save_data: Dict) -> Dict:
-        pass
-
-    @abstractmethod
-    def update_game_save(self, object_id: str, update_data: Dict) -> bool:
-        pass
-
-    @abstractmethod
-    def get_game_save_by_id(self, object_id: str) -> Optional[Dict]:
-        pass
-
-    @abstractmethod
-    def get_latest_game_save(self, user_id: str) -> Optional[Dict]:
-        pass
-
-    # 文件存储相关方法
-    @abstractmethod
-    def save_file(self, file_id: str, data: bytes, meta_data: Dict, url: str) -> None:
-        pass
-
-    @abstractmethod
-    def get_file(self, file_id: str) -> Optional[Dict]:
-        pass
-
-    @abstractmethod
-    def delete_file(self, file_id: str) -> bool:
-        pass
-
-    # 文件令牌和Key映射
-    @abstractmethod
-    def create_file_token(self, token: str, key: str, object_id: str, url: str, created_at: str) -> None:
-        pass
-
-    @abstractmethod
-    def get_file_token_by_token(self, token: str) -> Optional[Dict]:
-        pass
-
-    @abstractmethod
-    def get_object_id_by_key(self, key: str) -> Optional[str]:
-        pass
-
-    # 分片上传管理
-    @abstractmethod
-    def create_upload_session(self, upload_id: str, key: str) -> None:
-        pass
-
-    @abstractmethod
-    def get_upload_session(self, upload_id: str) -> Optional[Dict]:
-        pass
-
-    @abstractmethod
-    def add_upload_part(self, upload_id: str, part_num: int, data: bytes, etag: str) -> None:
-        pass
-
-    @abstractmethod
-    def delete_upload_session(self, upload_id: str) -> None:
-        pass
 
 # ---------------------- MockDB实现 ----------------------
+class UserInfo(BaseModel):
+    objectId: str
+    nickname: str
+    createdAt: str = ""
+    updatedAt: str = ""
+
+
 class MockDB(Database):
     def __init__(self):
         self.game_saves: Dict[str, List[Dict]] = {}  # 用user_id作为key
@@ -81,6 +22,7 @@ class MockDB(Database):
         self.file_tokens: Dict[str, Dict] = {}
         self.key_to_object_id: Dict[str, str] = {}
         self.uploads: Dict[str, Dict] = {}
+        self._user_info: Dict[str, UserInfo] = {}
 
     def get_user_id(self, session_token: str) -> Optional[str]:
         return self.users.get(session_token)
@@ -100,7 +42,7 @@ class MockDB(Database):
             for save in user_saves:
                 if save.get("objectId") == object_id:
                     save.update(update_data)
-                    save["updatedAt"] = datetime.utcnow().isoformat() + "Z"
+                    save["updatedAt"] = get_utc_iso()
                     return True
         return False
 
@@ -120,7 +62,7 @@ class MockDB(Database):
             "objectId": file_id,
             "data": data,
             "metaData": meta_data,
-            "url": url
+            "url": url,
         }
 
     def get_file(self, file_id: str) -> Optional[Dict]:
@@ -132,13 +74,15 @@ class MockDB(Database):
             return True
         return False
 
-    def create_file_token(self, token: str, key: str, object_id: str, url: str, created_at: str) -> None:
+    def create_file_token(
+        self, token: str, key: str, object_id: str, url: str, created_at: str
+    ) -> None:
         self.file_tokens[token] = {
             "objectId": object_id,
             "token": token,
             "key": key,
             "url": url,
-            "createdAt": created_at
+            "createdAt": created_at,
         }
         self.key_to_object_id[key] = object_id
 
@@ -149,22 +93,42 @@ class MockDB(Database):
         return self.key_to_object_id.get(key)
 
     def create_upload_session(self, upload_id: str, key: str) -> None:
-        self.uploads[upload_id] = {
-            "key": key,
-            "parts": {},
-            "createdAt": time.time()
-        }
+        self.uploads[upload_id] = {"key": key, "parts": {}, "createdAt": get_utc_iso()}
 
     def get_upload_session(self, upload_id: str) -> Optional[Dict]:
         return self.uploads.get(upload_id, {}).copy()
 
-    def add_upload_part(self, upload_id: str, part_num: int, data: bytes, etag: str) -> None:
+    def add_upload_part(
+        self, upload_id: str, part_num: int, data: bytes, etag: str
+    ) -> None:
         if upload_id in self.uploads:
-            self.uploads[upload_id]["parts"][part_num] = {
-                "data": data,
-                "etag": etag
-            }
+            self.uploads[upload_id]["parts"][part_num] = {"data": data, "etag": etag}
 
     def delete_upload_session(self, upload_id: str) -> None:
         if upload_id in self.uploads:
             del self.uploads[upload_id]
+
+    def get_user_info(self, user_id: str) -> Dict:
+        if user_id not in self._user_info:
+            self._user_info[user_id] = UserInfo(
+                objectId=user_id, nickname=f"User_{user_id[:8]}"
+            )
+        return self._user_info[user_id].model_dump()
+
+    def update_user_info(self, user_id: str, update_data: Dict) -> None:
+        if user_id not in self._user_info:
+            self._user_info[user_id] = UserInfo(
+                objectId=user_id, nickname=f"User_{user_id[:8]}"
+            )
+        current_info = self._user_info[user_id]
+        updated_info = current_info.model_copy(update=update_data)
+        self._user_info[user_id] = updated_info
+
+    def create_user(self, session_token: str, user_id: str) -> None:
+        self.users[session_token] = user_id
+        self._user_info[user_id] = UserInfo(
+            objectId=user_id,
+            nickname=f"User_{user_id[:8]}",
+            createdAt=get_utc_iso(),
+            updatedAt=get_utc_iso(),
+        )

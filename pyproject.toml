@@ -1,0 +1,47 @@
+[project]
+name = "phi_cloud_server"
+version = "0.1.0a1"
+description = "Phigros云存档服务器。"
+authors = [
+    {name = "Shua-github", email = "CHA_shua@outlook.com"},
+]
+dependencies = ["fastapi>=0.115.12", "uvicorn>=0.34.0", "jurigged>=0.6.0", "pydantic-settings>=2.8.1", "pydantic>=2.11.2", "PyYAML>=6.0.2"]
+requires-python = ">=3.7"
+readme = "README.md"
+license = {text = "Custom licenses"}
+
+[project.scripts]
+phi_cloud_server = "phi_cloud_server:main"
+
+# 使用 setuptools 作为构建系统
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# 包信息，动态发现包
+[tool.setuptools.packages]
+find = {where = ["."], exclude = ["tests*"]}  # 动态发现包，排除测试文件
+
+[tool.ruff]
+lint.select = ["F", "I"]
+
+[tool.pdm]
+distribution = true
+
+[tool.pdm.scripts]
+dev = {call = "phi_cloud_server:main", env = {DEV = "true"} } # dev启动
+start = {call = "phi_cloud_server:main"} # 正常启动
+uninstall = "pdm remove" # 卸载
+install = "pdm add" # 安装
+build = "pdm build" # 打包
+format = 'ruff format .' # 格式化
+check = 'ruff check .' # 格式化
+publish = 'twine upload dist/*' # 上传pypi
+
+[dependency-groups]
+dev = [
+    "jurigged>=0.6.0",
+    "ruff>=0.11.2",
+    "twine>=6.1.0",
+    "uvicorn[standard]>=0.34.0",
+]
