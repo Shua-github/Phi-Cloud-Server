@@ -1,6 +1,6 @@
 [project]
 name = "phi_cloud_server"
-version = "0.1.1a0"
+version = "0.1.1a1"
 description = "Phigros云存档服务器。"
 authors = [
     {name = "Shua-github", email = "CHA_shua@outlook.com"},

@@ -29,6 +29,11 @@ class TortoiseDB():
         )
         await Tortoise.generate_schemas()
         
+    async def close(self):
+        """关闭数据库连接"""
+        from tortoise import Tortoise
+        await Tortoise.close_connections()
+
     async def get_user_id(self, session_token: str) -> Optional[str]:
         session = await Session.filter(session_token=session_token).first()
         if session:

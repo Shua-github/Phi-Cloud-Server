@@ -24,7 +24,8 @@ async def lifespan(app: FastAPI):
     # 启动
     await db.create(db_url=config.db.db_url)
     yield
-    # 关闭
+    # 关闭数据库连接
+    await db.close()
     
 app = FastAPI(
     lifespan=lifespan,
