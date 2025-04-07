@@ -1,88 +1,85 @@
-from abc import ABC, abstractmethod
-from typing import Dict, List, Optional
+from tortoise import fields, models
 
 
-class Database(ABC):
-    @abstractmethod
-    def get_user_id(self, session_token: str) -> Optional[str]:
-        pass
+# Tortoise ORM 模型定义
+class User(models.Model):
+    """用户模型"""
+    id = fields.UUIDField(pk=True)
+    nickname = fields.CharField(max_length=255)
+    created_at = fields.DatetimeField(auto_now_add=True)
+    updated_at = fields.DatetimeField(auto_now=True)
+    
+    class Meta:
+        table = "users"
 
-    # Game Saves 相关方法
-    @abstractmethod
-    def get_all_game_saves(self, user_id: str) -> List[Dict]:
-        pass
 
-    @abstractmethod
-    def create_game_save(self, user_id: str, save_data: Dict) -> Dict:
-        pass
+class Session(models.Model):
+    """用户会话模型"""
+    id = fields.UUIDField(pk=True)
+    session_token = fields.CharField(max_length=255, unique=True)
+    user = fields.ForeignKeyField("models.User", related_name="sessions")
+    created_at = fields.DatetimeField(auto_now_add=True)
+    
+    class Meta:
+        table = "sessions"
 
-    @abstractmethod
-    def update_game_save(self, object_id: str, update_data: Dict) -> bool:
-        pass
 
-    @abstractmethod
-    def get_game_save_by_id(self, object_id: str) -> Optional[Dict]:
-        pass
+class File(models.Model):
+    """文件模型"""
+    id = fields.UUIDField(pk=True)
+    data = fields.BinaryField()
+    meta_data = fields.JSONField(default={})
+    url = fields.CharField(max_length=255)
+    created_at = fields.DatetimeField(auto_now_add=True)
+    
+    class Meta:
+        table = "files"
 
-    @abstractmethod
-    def get_latest_game_save(self, user_id: str) -> Optional[Dict]:
-        pass
 
-    # 文件存储相关方法
-    @abstractmethod
-    def save_file(self, file_id: str, data: bytes, meta_data: Dict, url: str) -> None:
-        pass
+class FileToken(models.Model):
+    """文件令牌模型"""
+    id = fields.UUIDField(pk=True)
+    token = fields.CharField(max_length=255, unique=True)
+    key = fields.CharField(max_length=255, unique=True)
+    file = fields.ForeignKeyField("models.File", related_name="tokens")
+    url = fields.CharField(max_length=255)
+    created_at = fields.DatetimeField(auto_now_add=True)
+    
+    class Meta:
+        table = "file_tokens"
 
-    @abstractmethod
-    def get_file(self, file_id: str) -> Optional[Dict]:
-        pass
 
-    @abstractmethod
-    def delete_file(self, file_id: str) -> bool:
-        pass
+class UploadSession(models.Model):
+    """上传会话模型"""
+    id = fields.UUIDField(pk=True)
+    key = fields.CharField(max_length=255)
+    created_at = fields.DatetimeField(auto_now_add=True)
+    
+    class Meta:
+        table = "upload_sessions"
 
-    # 文件令牌和Key映射
-    @abstractmethod
-    def create_file_token(
-        self, token: str, key: str, object_id: str, url: str, created_at: str
-    ) -> None:
-        pass
 
-    @abstractmethod
-    def get_file_token_by_token(self, token: str) -> Optional[Dict]:
-        pass
+class UploadPart(models.Model):
+    """上传分片模型"""
+    id = fields.UUIDField(pk=True)
+    session = fields.ForeignKeyField("models.UploadSession", related_name="parts")
+    part_num = fields.IntField()
+    data = fields.BinaryField()
+    etag = fields.CharField(max_length=255)
+    
+    class Meta:
+        table = "upload_parts"
+        unique_together = (("session", "part_num"),)
 
-    @abstractmethod
-    def get_object_id_by_key(self, key: str) -> Optional[str]:
-        pass
 
-    # 分片上传管理
-    @abstractmethod
-    def create_upload_session(self, upload_id: str, key: str) -> None:
-        pass
-
-    @abstractmethod
-    def get_upload_session(self, upload_id: str) -> Optional[Dict]:
-        pass
-
-    @abstractmethod
-    def add_upload_part(
-        self, upload_id: str, part_num: int, data: bytes, etag: str
-    ) -> None:
-        pass
-
-    @abstractmethod
-    def delete_upload_session(self, upload_id: str) -> None:
-        pass
-
-    @abstractmethod
-    def get_user_info(self, user_id: str) -> Dict:
-        pass
-
-    @abstractmethod
-    def update_user_info(self, user_id: str, update_data: Dict) -> None:
-        pass
-
-    @abstractmethod
-    def create_user(self, session_token: str, user_id: str) -> None:
-        pass
+class GameSave(models.Model):
+    """游戏存档模型"""
+    id = fields.UUIDField(pk=True)
+    user = fields.ForeignKeyField("models.User", related_name="game_saves")
+    game_file = fields.ForeignKeyField("models.File", related_name="game_saves")
+    save_data = fields.JSONField()
+    created_at = fields.DatetimeField(auto_now_add=True)
+    updated_at = fields.DatetimeField(auto_now=True)
+    
+    class Meta:
+        table = "game_saves"

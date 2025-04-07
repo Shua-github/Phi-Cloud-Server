@@ -6,6 +6,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from phi_cloud_server.utils import default_dir
 
 
+class DBConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    db_url: str = f"""sqlite://{str(default_dir / "sqlite3.db")}"""
+
 class ServerConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
     host: str = "0.0.0.0"
@@ -17,6 +21,8 @@ class ServerConfig(BaseModel):
 class AppConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
     server: ServerConfig = ServerConfig()
+    db: DBConfig = DBConfig()
+    
 
 
 def deep_merge(user_data: Any, default_data: Any) -> Any:

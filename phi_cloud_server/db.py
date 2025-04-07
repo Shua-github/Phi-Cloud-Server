@@ -1,134 +1,382 @@
+import uuid
+from datetime import datetime
+from hashlib import md5
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel
+from fastapi import Request
+from tortoise.transactions import atomic
 
-from phi_cloud_server.models import Database
-from phi_cloud_server.utils import get_utc_iso
+from phi_cloud_server.datetime_utils import get_utc_iso
+from phi_cloud_server.models import (
+    File,
+    FileToken,
+    GameSave,
+    Session,
+    UploadPart,
+    UploadSession,
+    User,
+)
 
 
-# ---------------------- MockDB实现 ----------------------
-class UserInfo(BaseModel):
-    objectId: str
-    nickname: str
-    createdAt: str = ""
-    updatedAt: str = ""
-
-
-class MockDB(Database):
-    def __init__(self):
-        self.game_saves: Dict[str, List[Dict]] = {}  # 用user_id作为key
-        self.users: Dict[str, str] = {}  # session_token -> user_id 映射
-        self.files: Dict[str, Dict] = {}
-        self.file_tokens: Dict[str, Dict] = {}
-        self.key_to_object_id: Dict[str, str] = {}
-        self.uploads: Dict[str, Dict] = {}
-        self._user_info: Dict[str, UserInfo] = {}
-
-    def get_user_id(self, session_token: str) -> Optional[str]:
-        return self.users.get(session_token)
-
-    def get_all_game_saves(self, user_id: str) -> List[Dict]:
-        return [save.copy() for save in self.game_saves.get(user_id, [])]
-
-    def create_game_save(self, user_id: str, save_data: Dict) -> Dict:
-        if user_id not in self.game_saves:
-            self.game_saves[user_id] = []
-        new_save = save_data.copy()
-        self.game_saves[user_id].append(new_save)
-        return new_save
-
-    def update_game_save(self, object_id: str, update_data: Dict) -> bool:
-        for user_saves in self.game_saves.values():
-            for save in user_saves:
-                if save.get("objectId") == object_id:
-                    save.update(update_data)
-                    save["updatedAt"] = get_utc_iso()
-                    return True
-        return False
-
-    def get_game_save_by_id(self, object_id: str) -> Optional[Dict]:
-        for user_saves in self.game_saves.values():
-            for save in user_saves:
-                if save.get("objectId") == object_id:
-                    return save.copy()
-        return None
-
-    def get_latest_game_save(self, user_id: str) -> Optional[Dict]:
-        user_saves = self.game_saves.get(user_id, [])
-        return user_saves[-1].copy() if user_saves else None
-
-    def save_file(self, file_id: str, data: bytes, meta_data: Dict, url: str) -> None:
-        self.files[file_id] = {
-            "objectId": file_id,
-            "data": data,
-            "metaData": meta_data,
-            "url": url,
-        }
-
-    def get_file(self, file_id: str) -> Optional[Dict]:
-        return self.files.get(file_id, {}).copy()
-
-    def delete_file(self, file_id: str) -> bool:
-        if file_id in self.files:
-            del self.files[file_id]
-            return True
-        return False
-
-    def create_file_token(
-        self, token: str, key: str, object_id: str, url: str, created_at: str
-    ) -> None:
-        self.file_tokens[token] = {
-            "objectId": object_id,
-            "token": token,
-            "key": key,
-            "url": url,
-            "createdAt": created_at,
-        }
-        self.key_to_object_id[key] = object_id
-
-    def get_file_token_by_token(self, token: str) -> Optional[Dict]:
-        return self.file_tokens.get(token, {}).copy()
-
-    def get_object_id_by_key(self, key: str) -> Optional[str]:
-        return self.key_to_object_id.get(key)
-
-    def create_upload_session(self, upload_id: str, key: str) -> None:
-        self.uploads[upload_id] = {"key": key, "parts": {}, "createdAt": get_utc_iso()}
-
-    def get_upload_session(self, upload_id: str) -> Optional[Dict]:
-        return self.uploads.get(upload_id, {}).copy()
-
-    def add_upload_part(
-        self, upload_id: str, part_num: int, data: bytes, etag: str
-    ) -> None:
-        if upload_id in self.uploads:
-            self.uploads[upload_id]["parts"][part_num] = {"data": data, "etag": etag}
-
-    def delete_upload_session(self, upload_id: str) -> None:
-        if upload_id in self.uploads:
-            del self.uploads[upload_id]
-
-    def get_user_info(self, user_id: str) -> Dict:
-        if user_id not in self._user_info:
-            self._user_info[user_id] = UserInfo(
-                objectId=user_id, nickname=f"User_{user_id[:8]}"
-            )
-        return self._user_info[user_id].model_dump()
-
-    def update_user_info(self, user_id: str, update_data: Dict) -> None:
-        if user_id not in self._user_info:
-            self._user_info[user_id] = UserInfo(
-                objectId=user_id, nickname=f"User_{user_id[:8]}"
-            )
-        current_info = self._user_info[user_id]
-        updated_info = current_info.model_copy(update=update_data)
-        self._user_info[user_id] = updated_info
-
-    def create_user(self, session_token: str, user_id: str) -> None:
-        self.users[session_token] = user_id
-        self._user_info[user_id] = UserInfo(
-            objectId=user_id,
-            nickname=f"User_{user_id[:8]}",
-            createdAt=get_utc_iso(),
-            updatedAt=get_utc_iso(),
+# TortoiseDB 实现
+class TortoiseDB():
+    async def create(self,db_url:str ='sqlite://:memory:'):
+        """初始化数据库连接"""
+        from tortoise import Tortoise
+        await Tortoise.init(
+            db_url=db_url,
+            modules={'models': ['phi_cloud_server.models']}
         )
+        await Tortoise.generate_schemas()
+        
+    async def get_user_id(self, session_token: str) -> Optional[str]:
+        session = await Session.filter(session_token=session_token).first()
+        if session:
+            return str(session.user_id)
+        return None
+    
+    
+    @atomic()
+    async def update_game_save(self, object_id: str, update_data: Dict) -> bool:
+        game_save = await GameSave.get_or_none(id=uuid.UUID(object_id))
+        if not game_save:
+            return False
+        
+        # 更新存档数据
+        save_data = game_save.save_data
+        save_data.update(update_data)
+        save_data["updatedAt"] = get_utc_iso()
+        
+        game_save.save_data = save_data
+        await game_save.save()
+        
+        return True
+
+
+    @atomic()
+    async def create_game_save(self, user_id: str, save_data: Dict) -> Dict:
+        file_data = save_data.get("gameFile", {})
+        file_id = file_data.get("objectId")
+        meta_data = file_data.get("metaData", {})
+        
+        # 计算文件数据的MD5校验和，如果没有数据则设为空字符串
+        if "data" in file_data:
+            file_data_bytes = file_data["data"].encode() if isinstance(file_data["data"], str) else file_data["data"]
+            md5_hash = md5()
+            md5_hash.update(file_data_bytes)
+            meta_data["_checksum"] = md5_hash.hexdigest()
+        # 始终确保 meta_data 中有 _checksum，即使没有 data
+        if "_checksum" not in meta_data:
+            meta_data["_checksum"] = ""
+            
+        file = await File.get_or_none(id=uuid.UUID(file_id)) if file_id else None
+        
+        if not file:
+            file = await File.create(
+                id=uuid.UUID(file_id) if file_id else uuid.uuid4(),
+                data=b"",
+                meta_data=meta_data,
+                url=file_data.get("url", "")
+            )
+        
+        object_id = save_data.get("objectId", str(uuid.uuid4()))
+        now = get_utc_iso()
+        
+        game_save = await GameSave.create(
+            id=uuid.UUID(object_id),
+            user_id=uuid.UUID(user_id),
+            game_file_id=file.id,
+            save_data=save_data
+        )
+        
+        result = {
+            "objectId": str(game_save.id),
+            "gameFile": {
+                "__type": "File",
+                "objectId": str(file.id),
+                "name": file_data.get("name", ""),
+                "url": file.url,
+                "metaData": file.meta_data
+            },
+            "createdAt": now,
+            "updatedAt": now,
+            **save_data
+        }
+        
+        return result
+
+    async def get_game_save_by_id(self, object_id: str) -> Optional[Dict]:
+        game_save = await GameSave.get_or_none(id=uuid.UUID(object_id)).prefetch_related("game_file")
+        if not game_save:
+            return None
+        
+        # 确保 metaData 中有 _checksum
+        meta_data = game_save.game_file.meta_data
+        if "_checksum" not in meta_data:
+            meta_data["_checksum"] = ""
+        
+        result = {
+            "objectId": str(game_save.id),
+            "gameFile": {
+                "__type": "File",
+                "objectId": str(game_save.game_file.id),
+                "url": game_save.game_file.url,
+                "metaData": meta_data
+            },
+            "createdAt": game_save.created_at.isoformat() + "Z",
+            "updatedAt": game_save.updated_at.isoformat() + "Z",
+            **game_save.save_data
+        }
+                    
+        return result
+
+    async def get_latest_game_save(self, user_id: str) -> Optional[Dict]:
+        game_save = await GameSave.filter(user_id=uuid.UUID(user_id)).prefetch_related("game_file").order_by("-created_at").first()
+        if not game_save:
+            return None
+        
+        # 确保 metaData 中有 _checksum
+        meta_data = game_save.game_file.meta_data
+        if "_checksum" not in meta_data:
+            meta_data["_checksum"] = ""
+        
+        result = {
+            "objectId": str(game_save.id),
+            "gameFile": {
+                "__type": "File",
+                "objectId": str(game_save.game_file.id),
+                "url": game_save.game_file.url,
+                "metaData": meta_data
+            },
+            "createdAt": game_save.created_at.isoformat() + "Z",
+            "updatedAt": game_save.updated_at.isoformat() + "Z",
+            **game_save.save_data
+        }
+                    
+        return result
+
+    async def save_file(self, file_id: str, data: bytes, meta_data: Dict, url: str) -> None:
+        # 确保meta_data中包含_checksum字段
+        if "_checksum" not in meta_data:
+            meta_data["_checksum"] = ""
+            
+        await File.update_or_create(
+            id=uuid.UUID(file_id),
+            defaults={
+                "data": data,
+                "meta_data": meta_data,
+                "url": url
+            }
+        )
+
+    async def get_file(self, file_id: str) -> Optional[Dict]:
+        file = await File.get_or_none(id=uuid.UUID(file_id))
+        if not file:
+            return None
+        
+        return {
+            "objectId": str(file.id),
+            "data": file.data,
+            "metaData": file.meta_data,
+            "url": file.url
+        }
+
+    async def delete_file(self, file_id: str) -> bool:
+        file = await File.get_or_none(id=uuid.UUID(file_id))
+        if not file:
+            return False
+        
+        await file.delete()
+        return True
+
+    async def create_file_token(self, token: str, key: str, object_id: str, url: str, created_at: str) -> None:
+        file = await File.get_or_none(id=uuid.UUID(object_id))
+        if not file:
+            file = await File.create(
+                id=uuid.UUID(object_id),
+                data=b"",
+                meta_data={},
+                url=url
+            )
+        
+        # 标准化时间字符串格式
+        dt = datetime.fromisoformat(created_at.replace('Z', ''))
+        
+        await FileToken.create(
+            id=uuid.uuid4(),
+            token=token,
+            key=key,
+            file_id=file.id,
+            url=url,
+            created_at=dt
+        )
+
+    async def get_file_token_by_token(self, token: str) -> Optional[Dict]:
+        file_token = await FileToken.get_or_none(token=token).prefetch_related("file")
+        if not file_token:
+            return None
+        
+        return {
+            "objectId": str(file_token.id),
+            "token": file_token.token,
+            "key": file_token.key,
+            "url": file_token.url,
+            "createdAt": file_token.created_at.isoformat() + "Z"
+        }
+
+    async def get_object_id_by_key(self, key: str) -> Optional[str]:
+        file_token = await FileToken.get_or_none(key=key)
+        if not file_token:
+            return None
+        
+        return str(file_token.id)
+
+    async def create_upload_session(self, upload_id: str, key: str) -> None:
+        await UploadSession.create(
+            id=uuid.UUID(upload_id),
+            key=key
+        )
+
+    async def get_upload_session(self, upload_id: str) -> Optional[Dict]:
+        session = await UploadSession.get_or_none(id=uuid.UUID(upload_id)).prefetch_related("parts")
+        if not session:
+            return None
+        
+        parts = {}
+        async for part in session.parts.all():
+            parts[part.part_num] = {
+                "data": part.data,
+                "etag": part.etag
+            }
+        
+        return {
+            "key": session.key,
+            "parts": parts,
+            "createdAt": session.created_at.isoformat() + "Z"
+        }
+
+    async def add_upload_part(self, upload_id: str, part_num: int, data: bytes, etag: str) -> None:
+        session = await UploadSession.get_or_none(id=uuid.UUID(upload_id))
+        if not session:
+            return
+        
+        await UploadPart.update_or_create(
+            session_id=session.id,
+            part_num=part_num,
+            defaults={
+                "data": data,
+                "etag": etag
+            }
+        )
+
+    async def delete_upload_session(self, upload_id: str) -> None:
+        session = await UploadSession.get_or_none(id=uuid.UUID(upload_id))
+        if not session:
+            return
+        
+        await session.delete()
+
+    async def get_user_info(self, user_id: str) -> Dict:
+        user = await User.get_or_none(id=uuid.UUID(user_id))
+        if not user:
+            user = await User.create(
+                id=uuid.UUID(user_id),
+                nickname=f"User_{user_id[:8]}"
+            )
+        
+        return {
+            "objectId": str(user.id),
+            "nickname": user.nickname,
+            "createdAt": user.created_at.isoformat() + "Z",
+            "updatedAt": user.updated_at.isoformat() + "Z"
+        }
+
+    async def update_user_info(self, user_id: str, update_data: Dict) -> None:
+        user = await User.get_or_none(id=uuid.UUID(user_id))
+        if not user:
+            user = await User.create(
+                id=uuid.UUID(user_id),
+                nickname=f"User_{user_id[:8]}"
+            )
+        
+        if "nickname" in update_data:
+            user.nickname = update_data["nickname"]
+            await user.save()
+
+    async def create_user(self, session_token: str, user_id: str) -> None:
+        user, _ = await User.update_or_create(
+            id=uuid.UUID(user_id),
+            defaults={
+                "nickname": f"User_{user_id[:8]}"
+            }
+        )
+        
+        await Session.create(
+            id=uuid.uuid4(),
+            session_token=session_token,
+            user_id=user.id
+        )
+
+    async def get_all_game_saves(self, user_id: str) -> List[Dict]:
+        user_uuid = uuid.UUID(user_id)
+        game_saves = await GameSave.filter(user_id=user_uuid).prefetch_related("game_file")
+        
+        results = []
+        for save in game_saves:
+            meta_data = save.game_file.meta_data
+            # 确保 metaData 中有 _checksum
+            if "_checksum" not in meta_data:
+                meta_data["_checksum"] = ""
+                
+            result = {
+                "objectId": str(save.id),
+                "gameFile": {
+                    "__type": "File",
+                    "objectId": str(save.game_file.id),
+                    "url": save.game_file.url,
+                    "metaData": meta_data
+                },
+                "createdAt": save.created_at.isoformat() + "Z",
+                "updatedAt": save.updated_at.isoformat() + "Z",
+                **save.save_data
+            }
+            results.append(result)
+        
+        return results
+
+    async def get_all_game_saves_with_files(self, user_id: str, request: Request) -> List[Dict]:
+        saves = await self.get_all_game_saves(user_id)
+        if not saves:
+            return []
+
+        file_infos = {
+            save["gameFile"]["objectId"]: await self.get_file(save["gameFile"]["objectId"]) 
+            for save in saves
+        }
+
+        for save in saves:
+            save["user"] = {
+                "__type": "Pointer",
+                "className": "_User",
+                "objectId": user_id,
+            }
+            
+            file_id = save["gameFile"]["objectId"]
+            file_info = file_infos.get(file_id)
+            
+            if file_info:
+                meta_data = file_info.get("metaData", {})
+                # 确保 metaData 中有 _checksum
+                if "_checksum" not in meta_data:
+                    meta_data["_checksum"] = ""
+                save["gameFile"].update({
+                    "metaData": meta_data,
+                    "url": file_info.get("url", ""),
+                })
+            else:
+                save["gameFile"].update({
+                    "metaData": {"_checksum": "", "size": 0},
+                    "url": request.url_for("get_file", file_id=file_id)._url,
+                })
+
+        return saves

@@ -2,14 +2,13 @@ import random
 import string
 import uuid
 from base64 import b64decode
-from datetime import datetime, timezone
 from os import getenv
 from pathlib import Path
 from typing import Optional
 
 from fastapi import HTTPException, Request
 
-from phi_cloud_server.models import Database
+from phi_cloud_server.db import TortoiseDB
 
 
 def decode_base64_key(encoded_key: str) -> str:
@@ -26,21 +25,14 @@ def get_session_token(request: Request) -> Optional[str]:
     return auth_header
 
 
-def verify_session(request: Request, db: Database) -> str:
+async def verify_session(request: Request, db: TortoiseDB) -> str:
     session_token = get_session_token(request)
     if not session_token:
         raise HTTPException(401, "Session token required")
-    user_id = db.get_user_id(session_token)
+    user_id = await db.get_user_id(session_token)
     if not user_id:
         raise HTTPException(401, "Invalid session token")
     return user_id
-
-
-def get_utc_iso() -> str:
-    """
-    返回UTC ISO格式的当前时间字符串，包含Z后缀
-    """
-    return datetime.now(timezone.utc).isoformat() + "Z"
 
 
 def get_random_object_id() -> str:
