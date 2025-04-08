@@ -1,11 +1,11 @@
 [project]
 name = "phi_cloud_server"
-version = "0.1.1a1"
+version = "0.1.1a2"
 description = "Phigros云存档服务器。"
 authors = [
     {name = "Shua-github", email = "CHA_shua@outlook.com"},
 ]
-dependencies = ["fastapi>=0.115.12", "uvicorn>=0.34.0", "jurigged>=0.6.0", "pydantic>=2.11.2", "PyYAML>=6.0.2", "tortoise-orm>=0.24.2"]
+dependencies = ["fastapi>=0.115.12", "uvicorn>=0.34.0", "pydantic>=2.11.2", "PyYAML>=6.0.2", "tortoise-orm>=0.24.2"]
 requires-python = ">=3.9"
 readme = "README.md"
 license = {text = "Custom licenses"}
@@ -31,12 +31,20 @@ distribution = true
 [tool.pdm.scripts]
 dev = {call = "phi_cloud_server:main", env = {DEV = "true"} } # dev启动
 start = {call = "phi_cloud_server:main"} # 正常启动
+start_dns = {call = "phi_cloud_server.dns:main"} # 启动dns服务器
 uninstall = "pdm remove" # 卸载
 install = "pdm add" # 安装
 build = "pdm build" # 打包
 format = 'ruff format .' # 格式化
 check = 'ruff check .' # 格式化
 publish = 'twine upload dist/*' # 上传pypi
+
+[project.optional-dependencies]
+# 可选依赖
+dns = [
+    "dnslib>=0.9.26",
+    "psutil>=7.0.0",
+]
 
 [dependency-groups]
 dev = [

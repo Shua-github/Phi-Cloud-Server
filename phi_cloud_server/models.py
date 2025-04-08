@@ -5,7 +5,7 @@ from tortoise import fields, models
 class User(models.Model):
     """用户模型"""
 
-    id = fields.UUIDField(pk=True)
+    id = fields.CharField(pk=True, max_length=36)  # 修改为字符串类型
     nickname = fields.CharField(max_length=255)
     created_at = fields.DatetimeField(auto_now_add=True)
     updated_at = fields.DatetimeField(auto_now=True)
@@ -17,7 +17,7 @@ class User(models.Model):
 class Session(models.Model):
     """用户会话模型"""
 
-    id = fields.UUIDField(pk=True)
+    id = fields.CharField(pk=True, max_length=36)  # 修改为字符串类型
     session_token = fields.CharField(max_length=255, unique=True)
     user = fields.ForeignKeyField("models.User", related_name="sessions")
     created_at = fields.DatetimeField(auto_now_add=True)
@@ -29,10 +29,10 @@ class Session(models.Model):
 class File(models.Model):
     """文件模型"""
 
-    id = fields.UUIDField(pk=True)
-    data = fields.BinaryField()
-    meta_data = fields.JSONField(default={})
-    url = fields.CharField(max_length=255)
+    id = fields.CharField(pk=True, max_length=36)  # 修改为字符串类型
+    data = fields.BinaryField(null=True)  # 确保允许 data 为空
+    meta_data = fields.JSONField(default={})  # 确保有默认值
+    url = fields.CharField(max_length=255, default="")  # 确保有默认值
     created_at = fields.DatetimeField(auto_now_add=True)
 
     class Meta:
@@ -42,7 +42,7 @@ class File(models.Model):
 class FileToken(models.Model):
     """文件令牌模型"""
 
-    id = fields.UUIDField(pk=True)
+    id = fields.CharField(pk=True, max_length=36)  # 修改为字符串类型
     token = fields.CharField(max_length=255, unique=True)
     key = fields.CharField(max_length=255, unique=True)
     file = fields.ForeignKeyField("models.File", related_name="tokens")
@@ -56,7 +56,7 @@ class FileToken(models.Model):
 class UploadSession(models.Model):
     """上传会话模型"""
 
-    id = fields.UUIDField(pk=True)
+    id = fields.CharField(pk=True, max_length=36)  # 修改为字符串类型
     key = fields.CharField(max_length=255)
     created_at = fields.DatetimeField(auto_now_add=True)
 
@@ -67,7 +67,7 @@ class UploadSession(models.Model):
 class UploadPart(models.Model):
     """上传分片模型"""
 
-    id = fields.UUIDField(pk=True)
+    id = fields.CharField(pk=True, max_length=36)  # 修改为字符串类型
     session = fields.ForeignKeyField("models.UploadSession", related_name="parts")
     part_num = fields.IntField()
     data = fields.BinaryField()
@@ -81,7 +81,7 @@ class UploadPart(models.Model):
 class GameSave(models.Model):
     """游戏存档模型"""
 
-    id = fields.UUIDField(pk=True)
+    id = fields.CharField(pk=True, max_length=36)  # 修改为字符串类型
     user = fields.ForeignKeyField("models.User", related_name="game_saves")
     game_file = fields.ForeignKeyField("models.File", related_name="game_saves")
     save_data = fields.JSONField()

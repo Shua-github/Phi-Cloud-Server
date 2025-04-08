@@ -149,7 +149,7 @@ async def register_user(Authorization: str = Header(...)):
     if Authorization != config.server.access_key:
         raise HTTPException(401, "No access")
     session_token = random.session_token()
-    user_id = random.object_id()
+    user_id = random.object_id()  # 修改
 
     await db.create_user(session_token, user_id)
     return JSONResponse({"sessionToken": session_token, "objectId": user_id})  # 修改
@@ -170,17 +170,19 @@ async def create_game_save(request: Request):
     user_id = await verify_session(request, db)
     data = await request.json()
     new_save = {
-        "objectId": random.object_id(),
+        "objectId": random.object_id(),  # 修改
         "createdAt": get_utc_iso(),
         "updatedAt": get_utc_iso(),
         "modifiedAt": get_utc_iso(),
         **data,
     }
-    print(new_save)
-    await db.create_game_save(user_id, new_save)
+    try:
+        result = await db.create_game_save(user_id, new_save)
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e))
     return JSONResponse(
-        {"objectId": new_save["objectId"], "createdAt": new_save["createdAt"]}
-    )  # 修改
+        {"objectId": result["objectId"], "createdAt": result["createdAt"]}
+    )
 
 
 @app.put("/1.1/classes/_GameSave/{object_id}")
@@ -201,7 +203,7 @@ async def create_file_token(request: Request):
     await verify_session(request, db)
     token = random.object_id()
     key = hashlib.md5(token.encode()).hexdigest()
-    object_id = random.object_id()
+    object_id = random.object_id()  # 修改
     url = str(request.url_for("get_file", file_id=object_id))
 
     await db.create_file_token(token, key, object_id, url, get_utc_iso())
@@ -260,7 +262,7 @@ async def start_upload(encoded_key: str):
     if not await db.get_object_id_by_key(raw_key):
         raise HTTPException(404, "Key not found")
 
-    upload_id = random.object_id()
+    upload_id = random.object_id()  # 修改
     await db.create_upload_session(upload_id, raw_key)
     return JSONResponse({"uploadId": upload_id})  # 修改
 
@@ -298,6 +300,16 @@ async def complete_upload(encoded_key: str, upload_id: str, request: Request):
     if upload_session["key"] != raw_key:
         raise HTTPException(400, "Key mismatch")
 
+    # 获取关联的 File ID
+    file_id = await db.get_object_id_by_key(raw_key)
+    if not file_id:
+        raise HTTPException(404, "No file associated with this upload key")
+
+    # 验证文件记录存在
+    file_info = await db.get_file(file_id)
+    if not file_info:
+        raise HTTPException(404, "File record not found")
+
     data = await request.json()
     parts = sorted(data["parts"], key=lambda x: x["partNumber"])
 
@@ -312,21 +324,15 @@ async def complete_upload(encoded_key: str, upload_id: str, request: Request):
     if not combined_data:
         raise HTTPException(400, "No data to save")
 
-    # 获取文件ID并保存
-    file_id = await db.get_object_id_by_key(raw_key)
-    if not file_id:
-        raise HTTPException(404, "Key not found")
-
-    # 保存文件数据
+    # 更新文件元数据和内容
     metadata = {
         "_checksum": hashlib.md5(combined_data).hexdigest(),
         "size": len(combined_data),
     }
+    file_url = str(request.url_for("get_file", file_id=file_id))
+    await db.save_file(file_id, combined_data, file_url, metadata)
 
-    file_url = str(request.url_for("get_file", file_id=file_id)._url)
-    await db.save_file(file_id, combined_data, file_url)
-
-    # 获取最新存档来更新文件关联
+    # 更新最新存档的文件关联
     latest_save = await db.get_latest_game_save(user_id)
     if latest_save:
         save_id = latest_save["objectId"]
