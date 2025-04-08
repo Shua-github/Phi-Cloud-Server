@@ -27,15 +27,15 @@ def broadcast_route(manager):
             # 处理响应内容
             if isinstance(response, Response):
                 content = response.body
-                content_type = response.headers.get('content-type', '')
-                
+                content_type = response.headers.get("content-type", "")
+
                 # 如果不是文本类型，转换为base64
-                if not content_type.startswith(('text/', 'application/json')):
-                    content = base64.b64encode(content).decode('utf-8')
+                if not content_type.startswith(("text/", "application/json")):
+                    content = base64.b64encode(content).decode("utf-8")
                     response_data = {
-                        'content': content,
-                        'content_type': content_type,
-                        'encoding': 'base64'
+                        "content": content,
+                        "content_type": content_type,
+                        "encoding": "base64",
                     }
                 else:
                     response_data = content

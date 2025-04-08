@@ -7,16 +7,15 @@ from fastapi import FastAPI, Header, HTTPException, Request, WebSocket
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from phi_cloud_server.config import config
-from phi_cloud_server.datetime_utils import get_utc_iso
 from phi_cloud_server.db import TortoiseDB
 from phi_cloud_server.decorators import broadcast_route
 from phi_cloud_server.utils import (
     decode_base64_key,
     dev_mode,
-    generateSessionToken,
-    get_random_object_id,
+    random,
     verify_session,
 )
+from phi_cloud_server.utils.datetime import get_utc_iso
 
 
 @asynccontextmanager
@@ -26,7 +25,8 @@ async def lifespan(app: FastAPI):
     yield
     # 关闭数据库连接
     await db.close()
-    
+
+
 app = FastAPI(
     lifespan=lifespan,
     debug=dev_mode,
@@ -36,6 +36,7 @@ app = FastAPI(
 )
 
 db = TortoiseDB()
+
 
 # ---------------------- WebSocket管理器 ----------------------
 class ConnectionManager:
@@ -77,16 +78,15 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
-
 @app.websocket("/ws/event")
 async def websocket_endpoint(
     websocket: WebSocket, routes: str = None, Authorization: str = Header(...)
 ):
     """
     订阅响应事件WebSocket连接
-    
+
     详细说明:
-    - routes: 要订阅的路由列表,以逗号分隔 
+    - routes: 要订阅的路由列表,以逗号分隔
     - 事件消息格式见示例
     """
     if Authorization != config.server.access_key:
@@ -104,7 +104,8 @@ async def websocket_endpoint(
 
 
 # ---------------------- 扩展接口 ----------------------
-@app.post("/1.1/users", 
+@app.post(
+    "/1.1/users",
     responses={
         200: {
             "description": "成功创建新用户",
@@ -112,41 +113,43 @@ async def websocket_endpoint(
                 "application/json": {
                     "example": {
                         "sessionToken": "<generated_session_token>",
-                        "objectId": "<generated_user_id>"
+                        "objectId": "<generated_user_id>",
                     },
                     "schema": {
                         "type": "object",
                         "properties": {
-                            "sessionToken": {"type": "string", "description": "新用户的会话令牌"},
-                            "objectId": {"type": "string", "description": "新用户的唯一标识符"}
-                        }
-                    }
+                            "sessionToken": {
+                                "type": "string",
+                                "description": "新用户的会话令牌",
+                            },
+                            "objectId": {
+                                "type": "string",
+                                "description": "新用户的唯一标识符",
+                            },
+                        },
+                    },
                 }
-            }
+            },
         },
         401: {
             "description": "未授权访问",
-            "content": {
-                "application/json": {
-                    "example": {"detail": "No access"}
-                }
-            }
-        }
-    }
+            "content": {"application/json": {"example": {"detail": "No access"}}},
+        },
+    },
 )
 @broadcast_route(manager)
 async def register_user(Authorization: str = Header(...)):
     """
     注册新用户
-    
+
     该接口用于创建新用户并返回会话令牌
-    
+
     需要在请求头中提供access_key进行身份验证
     """
     if Authorization != config.server.access_key:
         raise HTTPException(401, "No access")
-    session_token = generateSessionToken()
-    user_id = get_random_object_id()
+    session_token = random.session_token()
+    user_id = random.object_id()
 
     await db.create_user(session_token, user_id)
     return JSONResponse({"sessionToken": session_token, "objectId": user_id})  # 修改
@@ -167,14 +170,17 @@ async def create_game_save(request: Request):
     user_id = await verify_session(request, db)
     data = await request.json()
     new_save = {
-        "objectId": get_random_object_id(),
+        "objectId": random.object_id(),
         "createdAt": get_utc_iso(),
         "updatedAt": get_utc_iso(),
         "modifiedAt": get_utc_iso(),
         **data,
     }
+    print(new_save)
     await db.create_game_save(user_id, new_save)
-    return JSONResponse({"objectId": new_save["objectId"], "createdAt": new_save["createdAt"]})  # 修改
+    return JSONResponse(
+        {"objectId": new_save["objectId"], "createdAt": new_save["createdAt"]}
+    )  # 修改
 
 
 @app.put("/1.1/classes/_GameSave/{object_id}")
@@ -193,19 +199,21 @@ async def update_game_save(object_id: str, request: Request):
 @broadcast_route(manager)
 async def create_file_token(request: Request):
     await verify_session(request, db)
-    token = get_random_object_id()
+    token = random.object_id()
     key = hashlib.md5(token.encode()).hexdigest()
-    object_id = get_random_object_id()
+    object_id = random.object_id()
     url = str(request.url_for("get_file", file_id=object_id))
 
     await db.create_file_token(token, key, object_id, url, get_utc_iso())
-    return JSONResponse({  # 修改
-        "objectId": object_id,
-        "token": token,
-        "key": key,
-        "url": url,
-        "createdAt": get_utc_iso(),
-    })
+    return JSONResponse(
+        {  # 修改
+            "objectId": object_id,
+            "token": token,
+            "key": key,
+            "url": url,
+            "createdAt": get_utc_iso(),
+        }
+    )
 
 
 @app.delete("/1.1/files/{file_id}")
@@ -252,7 +260,7 @@ async def start_upload(encoded_key: str):
     if not await db.get_object_id_by_key(raw_key):
         raise HTTPException(404, "Key not found")
 
-    upload_id = get_random_object_id()
+    upload_id = random.object_id()
     await db.create_upload_session(upload_id, raw_key)
     return JSONResponse({"uploadId": upload_id})  # 修改
 
@@ -293,37 +301,49 @@ async def complete_upload(encoded_key: str, upload_id: str, request: Request):
     data = await request.json()
     parts = sorted(data["parts"], key=lambda x: x["partNumber"])
 
+    # 合并数据
     combined_data = b""
     for part in parts:
         part_info = upload_session["parts"].get(part["partNumber"])
-        if not part_info:
-            raise HTTPException(400, "Missing part")
+        if not part_info or not part_info["data"]:
+            raise HTTPException(400, "Missing part data")
         combined_data += part_info["data"]
 
+    if not combined_data:
+        raise HTTPException(400, "No data to save")
+
+    # 获取文件ID并保存
     file_id = await db.get_object_id_by_key(raw_key)
     if not file_id:
         raise HTTPException(404, "Key not found")
 
-    meta_data = {
+    # 保存文件数据
+    metadata = {
         "_checksum": hashlib.md5(combined_data).hexdigest(),
         "size": len(combined_data),
     }
-    file_url = str(request.url_for("get_file", file_id=file_id)._url)
-    await db.save_file(file_id, combined_data, meta_data, file_url)
 
+    file_url = str(request.url_for("get_file", file_id=file_id)._url)
+    await db.save_file(file_id, combined_data, file_url)
+
+    # 获取最新存档来更新文件关联
     latest_save = await db.get_latest_game_save(user_id)
     if latest_save:
-        latest_save["gameFile"] = {
-            "__type": "Pointer",
-            "className": "_File",
-            "objectId": file_id,
-            "metaData": meta_data,
-            "url": file_url,
+        save_id = latest_save["objectId"]
+        update_data = {
+            "gameFile": {
+                "__type": "File",
+                "objectId": file_id,
+                "url": file_url,
+                "metaData": metadata,
+            },
+            "updatedAt": get_utc_iso(),
         }
-        await db.update_game_save(latest_save["objectId"], latest_save)
+        await db.update_game_save(save_id, update_data)
 
+    # 清理上传会话
     await db.delete_upload_session(upload_id)
-    return JSONResponse({"key": encoded_key})  # 修改
+    return JSONResponse({"key": encoded_key})
 
 
 # ---------------------- 文件访问接口 ----------------------
@@ -331,8 +351,10 @@ async def complete_upload(encoded_key: str, upload_id: str, request: Request):
 @broadcast_route(manager)
 async def get_file(file_id: str):
     file_info = await db.get_file(file_id)
-    if not file_info:
-        raise HTTPException(404, detail={"code": 404, "error": "File not found"})
+    if not file_info or not file_info["data"]:
+        raise HTTPException(
+            404, detail={"code": 404, "error": "File not found or empty"}
+        )
     return StreamingResponse(
         iter([file_info["data"]]), media_type="application/octet-stream"
     )

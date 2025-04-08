@@ -10,6 +10,7 @@ class DBConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
     db_url: str = f"""sqlite://{str(default_dir / "sqlite3.db")}"""
 
+
 class ServerConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
     host: str = "0.0.0.0"
@@ -22,7 +23,6 @@ class AppConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
     server: ServerConfig = ServerConfig()
     db: DBConfig = DBConfig()
-    
 
 
 def deep_merge(user_data: Any, default_data: Any) -> Any:
@@ -43,6 +43,7 @@ def load_config() -> AppConfig:
     config_path = default_dir / "config.yaml"
     config_dir = config_path.parent
     print(f"Config.yml Path: {str(config_path)}")
+    print(f"Data Dir Path: {str(default_dir)}")
     config_dir.mkdir(parents=True, exist_ok=True)
 
     # 生成默认配置

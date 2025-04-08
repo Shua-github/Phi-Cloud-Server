@@ -1,6 +1,3 @@
-import random
-import string
-import uuid
 from base64 import b64decode
 from os import getenv
 from pathlib import Path
@@ -35,22 +32,8 @@ async def verify_session(request: Request, db: TortoiseDB) -> str:
     return user_id
 
 
-def get_random_object_id() -> str:
-    """
-    随机生成一个合法的objectId
-    """
-    return str(uuid.uuid4()).replace('-', '')
-
-
-def generateSessionToken() -> str:
-    """
-    随机生成一个合法的sessionToken
-    """
-    characters = string.ascii_lowercase + string.digits
-    token = "".join(random.choices(characters, k=25))
-    return token
-
 dev_mode = getenv("DEV", "").lower() == "true"
+
 
 def get_default_dir() -> Path:
     """获取默认配置文件目录"""
