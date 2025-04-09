@@ -5,7 +5,7 @@ description = "Phigros云存档服务器。"
 authors = [
     {name = "Shua-github", email = "CHA_shua@outlook.com"},
 ]
-dependencies = ["fastapi>=0.115.12", "uvicorn>=0.34.0", "pydantic>=2.11.2", "PyYAML>=6.0.2", "tortoise-orm>=0.24.2"]
+dependencies = ["fastapi>=0.115.12", "uvicorn>=0.34.0", "pydantic>=2.11.2", "PyYAML>=6.0.2", "tortoise-orm>=0.24.2", "sqlmodel>=0.0.24"]
 requires-python = ">=3.9"
 readme = "README.md"
 license = {text = "Custom licenses"}
@@ -36,7 +36,7 @@ uninstall = "pdm remove" # 卸载
 install = "pdm add" # 安装
 build = "pdm build" # 打包
 format = 'ruff format .' # 格式化
-check = 'ruff check .' # 格式化
+check = 'ruff check . --fix' # 检查
 publish = 'twine upload dist/*' # 上传pypi
 
 [project.optional-dependencies]

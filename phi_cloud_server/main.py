@@ -7,7 +7,9 @@ from fastapi import FastAPI, Header, HTTPException, Request, WebSocket
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from phi_cloud_server.config import config
-from phi_cloud_server.db import TortoiseDB
+
+#from phi_cloud_server.db import TortoiseDB as DB
+from phi_cloud_server.db1 import SQLModelDB as DB
 from phi_cloud_server.decorators import broadcast_route
 from phi_cloud_server.utils import (
     decode_base64_key,
@@ -17,15 +19,15 @@ from phi_cloud_server.utils import (
 )
 from phi_cloud_server.utils.datetime import get_utc_iso
 
+db = DB(config.db.db_url)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 启动
-    await db.create(db_url=config.db.db_url)
+    await db.create()
     yield
     # 关闭数据库连接
     await db.close()
-
 
 app = FastAPI(
     lifespan=lifespan,
@@ -35,7 +37,7 @@ app = FastAPI(
     openapi_url=None if not config.server.docs else "/openapi.json",
 )
 
-db = TortoiseDB()
+
 
 
 # ---------------------- WebSocket管理器 ----------------------
@@ -151,8 +153,8 @@ async def register_user(Authorization: str = Header(...)):
     session_token = random.session_token()
     user_id = random.object_id()  # 修改
 
-    await db.create_user(session_token, user_id)
-    return JSONResponse({"sessionToken": session_token, "objectId": user_id})  # 修改
+    await db.create_user(session_token, user_id)  # 移除不必要的时间参数
+    return JSONResponse({"sessionToken": session_token, "objectId": user_id})
 
 
 # ---------------------- TapTap/LeanCloud云存档接口 ----------------------
@@ -160,7 +162,7 @@ async def register_user(Authorization: str = Header(...)):
 @broadcast_route(manager)
 async def get_game_save(request: Request):
     user_id = await verify_session(request, db)
-    saves = await db.get_all_game_saves_with_files(user_id, request)
+    saves = await db.get_all_game_saves_with_files(user_id)
     return JSONResponse({"results": saves})
 
 
