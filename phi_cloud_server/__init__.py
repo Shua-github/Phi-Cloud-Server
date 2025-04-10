@@ -1,5 +1,6 @@
+from phi_cloud_server.config import config
 from phi_cloud_server.main import app
-from phi_cloud_server.utils import dev_mode
+from phi_cloud_server.utils import default_dir, dev_mode
 
 # ---------------------- 启动 ----------------------
 
@@ -17,4 +18,4 @@ def main():
             pattern=RELOAD_DIR,
         )
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host=config.server.host, port=config.server.port)

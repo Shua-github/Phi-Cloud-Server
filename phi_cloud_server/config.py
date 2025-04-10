@@ -5,24 +5,35 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from phi_cloud_server.utils import default_dir
 
+BLOCKED_DOMAINS = {
+    "rak3ffdi.cloud.tds1.tapapis.cn": "127.0.0.1",
+    "upload.qiniup.com": "127.0.0.1",
+}
+
 
 class DBConfig(BaseModel):
-    model_config = ConfigDict(extra="allow")
     db_url: str = f"""sqlite://{str(default_dir / "sqlite3.db")}"""
 
 
 class ServerConfig(BaseModel):
-    model_config = ConfigDict(extra="allow")
     host: str = "0.0.0.0"
     port: int = 5000
     access_key: str = Field(default="XBZecxb114514")  # 用于注册用户和监听事件鉴权的密钥
     docs: bool = False
 
 
+class DNSServerConfig(BaseModel):
+    upstream_dns: str = "119.29.29.29"
+    blocked_domains: dict = Field(default=BLOCKED_DOMAINS)
+    port: int = 53
+    host: str = "0.0.0.0"
+
+
 class AppConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
     server: ServerConfig = ServerConfig()
     db: DBConfig = DBConfig()
+    server_dns: DNSServerConfig = DNSServerConfig()
 
 
 def deep_merge(user_data: Any, default_data: Any) -> Any:

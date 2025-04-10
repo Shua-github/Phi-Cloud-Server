@@ -36,7 +36,7 @@ uninstall = "pdm remove" # 卸载
 install = "pdm add" # 安装
 build = "pdm build" # 打包
 format = 'ruff format .' # 格式化
-check = 'ruff check .' # 格式化
+check = 'ruff check . --fix' # 检查
 publish = 'twine upload dist/*' # 上传pypi
 
 [project.optional-dependencies]
