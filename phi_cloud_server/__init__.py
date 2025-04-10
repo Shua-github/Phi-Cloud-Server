@@ -1,6 +1,6 @@
 from phi_cloud_server.config import config
 from phi_cloud_server.main import app
-from phi_cloud_server.utils import dev_mode
+from phi_cloud_server.utils import default_dir, dev_mode
 
 # ---------------------- 启动 ----------------------
 

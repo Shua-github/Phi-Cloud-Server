@@ -179,7 +179,7 @@ class TortoiseDB:
         return True
 
     async def create_file_token(
-        self, token: str, key: str, object_id: str, url: str, created_at: str
+        self, token: str, key: str, object_id: str, url: str, created_at: str, session_token: str
     ) -> None:
         file = await File.get_or_none(id=object_id)
         if not file:
@@ -195,6 +195,7 @@ class TortoiseDB:
             file_id=file.id,
             url=url,
             created_at=dt,
+            session_token=session_token,  # 存储 session_token
         )
 
     async def get_file_token_by_token(self, token: str) -> Optional[Dict]:
@@ -210,14 +211,28 @@ class TortoiseDB:
             "createdAt": file_token.created_at.isoformat() + "Z",
         }
 
+    async def get_file_token_by_key(self, key: str) -> Optional[Dict]:
+        file_token = await FileToken.get_or_none(key=key).prefetch_related("file")
+        if not file_token:
+            return None
+
+        return {
+            "objectId": str(file_token.id),
+            "token": file_token.token,
+            "key": file_token.key,
+            "url": file_token.url,
+            "createdAt": file_token.created_at.isoformat() + "Z",
+            "session_token": file_token.session_token,  # 返回 session_token
+        }
+
     async def get_object_id_by_key(self, key: str) -> Optional[str]:
         file_token = await FileToken.get_or_none(key=key).prefetch_related("file")
         if not file_token:
             return None
         return str(file_token.file.id)  # 返回关联的 File ID
 
-    async def create_upload_session(self, upload_id: str, key: str) -> None:
-        await UploadSession.create(id=upload_id, key=key)
+    async def create_upload_session(self, upload_id: str, key: str, session_token: str) -> None:
+        await UploadSession.create(id=upload_id, key=key, session_token=session_token)
 
     async def get_upload_session(self, upload_id: str) -> Optional[Dict]:
         session = await UploadSession.get_or_none(id=upload_id).prefetch_related(
@@ -232,6 +247,7 @@ class TortoiseDB:
 
         return {
             "key": session.key,
+            "session_token": session.session_token,  # 返回 session_token
             "parts": parts,
             "createdAt": session.created_at.isoformat() + "Z",
         }
@@ -312,6 +328,7 @@ class TortoiseDB:
 
     async def get_all_game_saves_with_files(self, user_id: str) -> List[Dict]:
         saves = await self.get_all_game_saves(user_id)
+        print(saves)
         if not saves:
             return []
 

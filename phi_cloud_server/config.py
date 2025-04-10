@@ -12,9 +12,7 @@ BLOCKED_DOMAINS = {
 
 
 class DBConfig(BaseModel):
-    db_url: str = (
-        f"""sqlite+aiosqlite:///{str(default_dir / "sqlite3.db")}"""  # 修改为异步驱动
-    )
+    db_url: str = f"""sqlite://{str(default_dir / "sqlite3.db")}"""
 
 
 class ServerConfig(BaseModel):

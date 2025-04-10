@@ -112,7 +112,13 @@ class InMemoryDB:
         return self.files.pop(file_id, None) is not None
 
     async def create_file_token(
-        self, token: str, key: str, object_id: str, url: str, created_at: str
+        self,
+        token: str,
+        key: str,
+        object_id: str,
+        url: str,
+        created_at: str,
+        session_token: str,
     ) -> None:
         self.files.setdefault(
             object_id,
@@ -130,6 +136,7 @@ class InMemoryDB:
             "file_id": object_id,
             "url": url,
             "created_at": created_at,
+            "session_token": session_token,  # 存储 session_token
         }
 
     async def get_file_token_by_token(self, token: str) -> Optional[Dict]:
@@ -144,16 +151,25 @@ class InMemoryDB:
             "createdAt": ft["created_at"],
         }
 
+    async def get_file_token_by_key(self, key: str) -> Optional[Dict]:
+        for token in self.file_tokens.values():
+            if token["key"] == key:
+                return token
+        return None
+
     async def get_object_id_by_key(self, key: str) -> Optional[str]:
         for ft in self.file_tokens.values():
             if ft["key"] == key:
                 return ft["file_id"]
         return None
 
-    async def create_upload_session(self, upload_id: str, key: str) -> None:
+    async def create_upload_session(
+        self, upload_id: str, key: str, session_token: str
+    ) -> None:
         self.upload_sessions[upload_id] = {
             "id": upload_id,
             "key": key,
+            "session_token": session_token,  # 绑定 session_token
             "created_at": get_utc_iso(),
         }
 
@@ -167,6 +183,7 @@ class InMemoryDB:
         }
         return {
             "key": session["key"],
+            "session_token": session["session_token"],  # 返回 session_token
             "parts": parts,
             "createdAt": session["created_at"],
         }

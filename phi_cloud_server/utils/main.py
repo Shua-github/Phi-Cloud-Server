@@ -5,8 +5,6 @@ from typing import Optional
 
 from fastapi import HTTPException, Request
 
-from phi_cloud_server.db import TortoiseDB
-
 
 def decode_base64_key(encoded_key: str) -> str:
     try:
@@ -22,7 +20,7 @@ def get_session_token(request: Request) -> Optional[str]:
     return auth_header
 
 
-async def verify_session(request: Request, db: TortoiseDB) -> str:
+async def verify_session(request: Request, db) -> str:
     session_token = get_session_token(request)
     if not session_token:
         raise HTTPException(401, "Session token required")

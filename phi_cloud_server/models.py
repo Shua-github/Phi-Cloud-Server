@@ -47,6 +47,7 @@ class FileToken(models.Model):
     key = fields.CharField(max_length=255, unique=True)
     file = fields.ForeignKeyField("models.File", related_name="tokens")
     url = fields.CharField(max_length=255)
+    session_token = fields.CharField(max_length=255, null=True)  # 添加 session_token 字段
     created_at = fields.DatetimeField(auto_now_add=True)
 
     class Meta:
@@ -58,6 +59,7 @@ class UploadSession(models.Model):
 
     id = fields.CharField(pk=True, max_length=36)  # 修改为字符串类型
     key = fields.CharField(max_length=255)
+    session_token = fields.CharField(max_length=255, null=True)  # 添加 session_token 字段
     created_at = fields.DatetimeField(auto_now_add=True)
 
     class Meta:
