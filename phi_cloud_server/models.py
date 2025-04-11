@@ -18,7 +18,7 @@ class Session(models.Model):
     """用户会话模型"""
 
     id = fields.CharField(pk=True, max_length=36)  # 修改为字符串类型
-    session_token = fields.CharField(max_length=255, unique=True)
+    session_token = fields.CharField(max_length=25, unique=True)
     user = fields.ForeignKeyField("models.User", related_name="sessions")
     created_at = fields.DatetimeField(auto_now_add=True)
 
@@ -48,7 +48,7 @@ class FileToken(models.Model):
     file = fields.ForeignKeyField("models.File", related_name="tokens")
     url = fields.CharField(max_length=255)
     session_token = fields.CharField(
-        max_length=255, null=True
+        max_length=25, null=True
     )  # 添加 session_token 字段
     created_at = fields.DatetimeField(auto_now_add=True)
 
@@ -62,7 +62,7 @@ class UploadSession(models.Model):
     id = fields.CharField(pk=True, max_length=36)  # 修改为字符串类型
     key = fields.CharField(max_length=255)
     session_token = fields.CharField(
-        max_length=255, null=True
+        max_length=25, null=True
     )  # 添加 session_token 字段
     created_at = fields.DatetimeField(auto_now_add=True)
 

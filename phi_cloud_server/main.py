@@ -5,7 +5,7 @@ from re import match
 from typing import Dict, List, Set
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request, WebSocket
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, Response
 from pydantic import BaseModel, Field, field_validator
 
 from phi_cloud_server.config import config
@@ -42,7 +42,13 @@ app = FastAPI(
     openapi_url=None if not config.server.docs else "/openapi.json",
 )
 
-
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"code": exc.status_code, "error": exc.detail}
+    )
+    
 # ---------------------- WebSocket管理器 ----------------------
 class ConnectionManager:
     def __init__(self):
@@ -291,8 +297,8 @@ async def create_file_token(request: Request):
 @broadcast_route(manager)
 async def delete_file(file_id: str):
     if not await db.delete_file(file_id):
-        raise HTTPException(404, detail={"code": 404, "error": "File not found"})
-    return JSONResponse({"code": 200, "data": {}}, status_code=204)
+        raise HTTPException(404, detail="File not found")
+    return Response(status_code=204)
 
 
 @app.post("/1.1/fileCallback")
@@ -431,7 +437,7 @@ async def get_file(file_id: str):
     file_info = await db.get_file(file_id)
     if not file_info or not file_info["data"]:
         raise HTTPException(
-            404, detail={"code": 404, "error": "File not found or empty"}
+            404, detail="File not found or empty"
         )
     return StreamingResponse(
         iter([file_info["data"]]), media_type="application/octet-stream"
