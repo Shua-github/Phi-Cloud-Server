@@ -1,6 +1,6 @@
 [project]
 name = "phi_cloud_server"
-version = "0.1.2a1"
+version = "0.1.2a2"
 description = "Phigros云存档服务器。"
 authors = [
     {name = "Shua-github", email = "CHA_shua@outlook.com"},
@@ -29,24 +29,33 @@ lint.select = ["F", "I"]
 distribution = true
 
 [tool.pdm.scripts]
-dev = {call = "phi_cloud_server:main", env = {DEV = "true"} } # dev启动
+# ----------------------------------------------
 start = {call = "phi_cloud_server:main"} # 正常启动
-start_dns = {call = "phi_cloud_server.dns:main"} # 启动dns服务器
+start-dev = {call = "phi_cloud_server:main", env = {DEV = "true"} } # dev启动
+# ----------------------------------------------
+start-dns = {call = "phi_cloud_server.dns:main"} # 启动dns服务器
+start-cert = {call = "phi_cloud_server.dns.generate_certs:main"} # 启动证书生成
+start-dns-dev = {call = "phi_cloud_server.dns:main", env = {DEV = "true"} } # dev启动dns服务器
+start-cert-dev = {call = "phi_cloud_server.dns.generate_certs:main", env = {DEV = "true"} } # dev启动证书生成
+# ----------------------------------------------
 uninstall = "pdm remove" # 卸载
 install = "pdm add" # 安装
 build = "pdm build" # 打包
+publish = 'twine upload dist/*' # 上传pypi
+# ----------------------------------------------
 format = 'ruff format .' # 格式化
 check-ruff = 'ruff check . --fix' # 检查
 check-mypy = 'mypy .' # 检查
 check-vermin = 'vermin --eval-annotations --backport asyncio --backport typing --no-parse-comments .' # 检查
-check = {composite = ["check-ruff", "check-vermin", "check-mypy"]} # 检查全部
-publish = 'twine upload dist/*' # 上传pypi
+check = {composite = ["check-ruff", "check-vermin","format"]} # 检查全部
+# ----------------------------------------------
 
 [project.optional-dependencies]
 # 可选依赖
 dns = [
     "dnslib>=0.9.26",
     "psutil>=7.0.0",
+    "cryptography>=44.0.2",
 ]
 
 [dependency-groups]

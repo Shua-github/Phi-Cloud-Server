@@ -53,7 +53,7 @@ class TortoiseDB:
         await session.save()
 
         return True
-        
+
     @atomic()
     async def update_game_save(self, object_id: str, update_data: Dict) -> bool:
         game_save = await GameSave.get_or_none(id=object_id)

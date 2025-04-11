@@ -7,7 +7,6 @@ from phi_cloud_server.utils import default_dir
 
 BLOCKED_DOMAINS = {
     "rak3ffdi.cloud.tds1.tapapis.cn": "127.0.0.1",
-    "upload.qiniup.com": "127.0.0.1",
 }
 
 
@@ -17,9 +16,12 @@ class DBConfig(BaseModel):
 
 class ServerConfig(BaseModel):
     host: str = "0.0.0.0"
-    port: int = 5000
+    port: int = 443
     access_key: str = Field(default="XBZecxb114514")  # 用于注册用户和监听事件鉴权的密钥
     docs: bool = False
+    ssl_switch: bool = False
+    ssl_certfile: str = Field(default="")  # SSL证书路径
+    ssl_keyfile: str = Field(default="")  # SSL密钥路径
 
 
 class DNSServerConfig(BaseModel):

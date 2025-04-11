@@ -5,7 +5,7 @@ from re import match
 from typing import Dict, List, Set
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request, WebSocket
-from fastapi.responses import JSONResponse, StreamingResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from phi_cloud_server.config import config
@@ -42,13 +42,15 @@ app = FastAPI(
     openapi_url=None if not config.server.docs else "/openapi.json",
 )
 
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     return JSONResponse(
         status_code=exc.status_code,
-        content={"code": exc.status_code, "error": exc.detail}
+        content={"code": exc.status_code, "error": exc.detail},
     )
-    
+
+
 # ---------------------- WebSocket管理器 ----------------------
 class ConnectionManager:
     def __init__(self):
@@ -189,16 +191,26 @@ async def register_user(
 
 # ---------------------- TapTap/LeanCloud云存档接口 ----------------------
 
+
 @app.put("/1.1/users/{object_id}/refreshSessionToken")
 @broadcast_route(manager)
 async def refresh_session_token(object_id):
     new_session_token = random.session_token()
-    result = await db.refresh_session_token(user_id=object_id,new_session_token=new_session_token)
+    result = await db.refresh_session_token(
+        user_id=object_id, new_session_token=new_session_token
+    )
     if result:
-        return JSONResponse({"objectId":object_id,"sessionToken":new_session_token,"updatedAt":get_utc_iso()})
+        return JSONResponse(
+            {
+                "objectId": object_id,
+                "sessionToken": new_session_token,
+                "updatedAt": get_utc_iso(),
+            }
+        )
     else:
-        raise HTTPException(404,"objectId not found or empty")
-    
+        raise HTTPException(404, "objectId not found or empty")
+
+
 @app.get("/1.1/classes/_GameSave")
 @broadcast_route(manager)
 async def get_game_save(request: Request):
@@ -372,6 +384,7 @@ async def upload_part(
 @app.post("/buckets/rAK3Ffdi/objects/{encoded_key}/uploads/{upload_id}")
 @broadcast_route(manager)
 async def complete_upload(encoded_key: str, upload_id: str, request: Request):
+    print(str(request.base_url))
     raw_key = decode_base64_key(encoded_key)
     upload_session = await db.get_upload_session(upload_id)
     if not upload_session:
@@ -436,9 +449,7 @@ async def complete_upload(encoded_key: str, upload_id: str, request: Request):
 async def get_file(file_id: str):
     file_info = await db.get_file(file_id)
     if not file_info or not file_info["data"]:
-        raise HTTPException(
-            404, detail="File not found or empty"
-        )
+        raise HTTPException(404, detail="File not found or empty")
     return StreamingResponse(
         iter([file_info["data"]]), media_type="application/octet-stream"
     )
