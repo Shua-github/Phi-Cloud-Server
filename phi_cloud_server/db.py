@@ -42,6 +42,18 @@ class TortoiseDB:
             return str(session.user_id)
         return None
 
+    async def refresh_session_token(self, new_session_token: str, user_id: str) -> bool:
+        session = await Session.filter(user_id=user_id).first()
+
+        if not session:
+            return False
+
+        session.session_token = new_session_token
+
+        await session.save()
+
+        return True
+        
     @atomic()
     async def update_game_save(self, object_id: str, update_data: Dict) -> bool:
         game_save = await GameSave.get_or_none(id=object_id)
@@ -179,7 +191,13 @@ class TortoiseDB:
         return True
 
     async def create_file_token(
-        self, token: str, key: str, object_id: str, url: str, created_at: str, session_token: str
+        self,
+        token: str,
+        key: str,
+        object_id: str,
+        url: str,
+        created_at: str,
+        session_token: str,
     ) -> None:
         file = await File.get_or_none(id=object_id)
         if not file:
@@ -231,7 +249,9 @@ class TortoiseDB:
             return None
         return str(file_token.file.id)  # 返回关联的 File ID
 
-    async def create_upload_session(self, upload_id: str, key: str, session_token: str) -> None:
+    async def create_upload_session(
+        self, upload_id: str, key: str, session_token: str
+    ) -> None:
         await UploadSession.create(id=upload_id, key=key, session_token=session_token)
 
     async def get_upload_session(self, upload_id: str) -> Optional[Dict]:

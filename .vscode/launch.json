@@ -1,19 +1,17 @@
 {
-    "version": "0.2.0",
-    "configurations": [
-      {
-        "name": "Python: FastAPI",
-        "type": "debugpy",
-        "request": "launch",
-        "module": "uvicorn",
-        "args": [
-          "phi_cloud_server:app",     
-          "--host", "127.0.0.1",
-          "--port", "80" 
-        ],
-        "jinja": true,
-        "justMyCode": true
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: FastAPI (with dev)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/phi_cloud_server",  // 启动路径
+      "args": [],
+      "jinja": true,
+      "justMyCode": true,
+      "env": {
+        "DEV": "true" // 启用dev
       }
-    ]
-  }
-  
+    }
+  ]
+}

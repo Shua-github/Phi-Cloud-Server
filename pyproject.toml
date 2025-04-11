@@ -1,6 +1,6 @@
 [project]
 name = "phi_cloud_server"
-version = "0.1.1a2"
+version = "0.1.2a0"
 description = "Phigros云存档服务器。"
 authors = [
     {name = "Shua-github", email = "CHA_shua@outlook.com"},
@@ -8,7 +8,7 @@ authors = [
 dependencies = ["fastapi>=0.115.12", "uvicorn>=0.34.0", "pydantic>=2.11.2", "PyYAML>=6.0.2", "tortoise-orm>=0.24.2"]
 requires-python = ">=3.9"
 readme = "README.md"
-license = {text = "Custom licenses"}
+license = {file = "LICENSE"}
 
 [project.scripts]
 phi_cloud_server = "phi_cloud_server:main"
@@ -36,7 +36,10 @@ uninstall = "pdm remove" # 卸载
 install = "pdm add" # 安装
 build = "pdm build" # 打包
 format = 'ruff format .' # 格式化
-check = 'ruff check . --fix' # 检查
+check-ruff = 'ruff check . --fix' # 检查
+check-mypy = 'mypy .' # 检查
+check-vermin = 'vermin --eval-annotations --backport asyncio --backport typing --no-parse-comments .' # 检查
+check = {composite = ["check-ruff", "check-vermin", "check-mypy"]} # 检查全部
 publish = 'twine upload dist/*' # 上传pypi
 
 [project.optional-dependencies]
@@ -52,4 +55,7 @@ dev = [
     "ruff>=0.11.2",
     "twine>=6.1.0",
     "uvicorn[standard]>=0.34.0",
+    "types-PyYAML>=6.0.12.20250402",
+    "types-psutil>=7.0.0.20250401",
+    "mypy>=1.15.0",
 ]

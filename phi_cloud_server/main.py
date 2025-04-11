@@ -1,15 +1,17 @@
 import asyncio
 import hashlib
 from contextlib import asynccontextmanager
+from re import match
 from typing import Dict, List, Set
 
-from fastapi import FastAPI, Header, HTTPException, Request, WebSocket
+from fastapi import Body, FastAPI, Header, HTTPException, Request, WebSocket
 from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel, Field, field_validator
 
 from phi_cloud_server.config import config
 from phi_cloud_server.db import TortoiseDB as DB
 
-#from phi_cloud_server.db0 import InMemoryDB as DB
+# from phi_cloud_server.db0 import InMemoryDB as DB
 from phi_cloud_server.decorators import broadcast_route
 from phi_cloud_server.utils import (
     decode_base64_key,
@@ -107,10 +109,26 @@ async def websocket_endpoint(
 
 
 # ---------------------- 扩展接口 ----------------------
+class RegisterUserBody(BaseModel):
+    sessionToken: str = Field(default_factory=random.session_token)
+    objectId: str = Field(default_factory=random.object_id)
+
+    @field_validator("sessionToken")
+    @classmethod
+    def check_sessionToken(cls, value: str) -> str:
+        if len(value) != 25:
+            raise ValueError("sessionToken长度错误，应该是25位")
+
+        if not match(r"^[0-9a-z]{25}$", value):
+            raise ValueError("sessionToken不合法,只能有小写字母和数字")
+
+        return value
+
+
 @app.post(
     "/1.1/users",
     responses={
-        200: {
+        201: {
             "description": "成功创建新用户",
             "content": {
                 "application/json": {
@@ -141,7 +159,9 @@ async def websocket_endpoint(
     },
 )
 @broadcast_route(manager)
-async def register_user(Authorization: str = Header(...)):
+async def register_user(
+    Authorization: str = Header(...), body: RegisterUserBody = Body(None)
+):
     """
     注册新用户
 
@@ -151,14 +171,28 @@ async def register_user(Authorization: str = Header(...)):
     """
     if Authorization != config.server.access_key:
         raise HTTPException(401, "No access")
-    session_token = random.session_token()
-    user_id = random.object_id()  # 修改
+
+    session_token = body.sessionToken
+    user_id = body.objectId
 
     await db.create_user(session_token, user_id)  # 移除不必要的时间参数
-    return JSONResponse({"sessionToken": session_token, "objectId": user_id})
+    return JSONResponse(
+        {"sessionToken": session_token, "objectId": user_id}, status_code=201
+    )
 
 
 # ---------------------- TapTap/LeanCloud云存档接口 ----------------------
+
+@app.put("/1.1/users/{object_id}/refreshSessionToken")
+@broadcast_route(manager)
+async def refresh_session_token(object_id):
+    new_session_token = random.session_token()
+    result = await db.refresh_session_token(user_id=object_id,new_session_token=new_session_token)
+    if result:
+        return JSONResponse({"objectId":object_id,"sessionToken":new_session_token,"updatedAt":get_utc_iso()})
+    else:
+        raise HTTPException(404,"objectId not found or empty")
+    
 @app.get("/1.1/classes/_GameSave")
 @broadcast_route(manager)
 async def get_game_save(request: Request):
@@ -184,7 +218,8 @@ async def create_game_save(request: Request):
     except ValueError as e:
         raise HTTPException(400, detail=str(e))
     return JSONResponse(
-        {"objectId": result["objectId"], "createdAt": result["createdAt"]}
+        {"objectId": result["objectId"], "createdAt": result["createdAt"]},
+        status_code=201,
     )
 
 
@@ -208,13 +243,11 @@ async def create_file_token(request: Request):
 
     客户端请求文件上传令牌时调用此接口。
     """
-    user_id = await verify_session(request, db)
     session_token = get_session_token(request)  # 获取 session_token
     data = await request.json()
 
     # 提取客户端传递的参数
     name = data.get("name", ".save")
-    acl = data.get("ACL", {})
     prefix = data.get("prefix", "gamesaves")
     meta_data = data.get("metaData", {})
     size = meta_data.get("size", 0)
@@ -224,8 +257,8 @@ async def create_file_token(request: Request):
     token = random.object_id()
     key = f"{prefix}/{random.object_id()}/{name}"
     object_id = random.object_id()
-    upload_url = "https://upload.qiniup.com"
-    file_url = f"https://rak3ffdi.tds1.tapfiles.cn/{key}"
+    upload_url = str(request.base_url)[:-1]  # 注意,不能返回带/的url
+    file_url = f"{str(request.base_url)}{key}"
 
     # 存储文件令牌信息
     await db.create_file_token(
@@ -259,7 +292,7 @@ async def create_file_token(request: Request):
 async def delete_file(file_id: str):
     if not await db.delete_file(file_id):
         raise HTTPException(404, detail={"code": 404, "error": "File not found"})
-    return JSONResponse({"code": 200, "data": {}})  # 修改
+    return JSONResponse({"code": 200, "data": {}}, status_code=204)
 
 
 @app.post("/1.1/fileCallback")
@@ -272,6 +305,7 @@ async def file_callback(request: Request):
 async def get_current_user(request: Request):
     user_id = await verify_session(request, db)
     user_info = await db.get_user_info(user_id)
+    print(user_info)
     return JSONResponse(user_info)  # 修改
 
 
