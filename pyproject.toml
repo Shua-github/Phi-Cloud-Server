@@ -1,11 +1,11 @@
 [project]
 name = "phi_cloud_server"
-version = "0.1.2a2"
+version = "0.1.2a3"
 description = "Phigros云存档服务器。"
 authors = [
     {name = "Shua-github", email = "CHA_shua@outlook.com"},
 ]
-dependencies = ["fastapi>=0.115.12", "uvicorn>=0.34.0", "pydantic>=2.11.2", "PyYAML>=6.0.2", "tortoise-orm>=0.24.2"]
+dependencies = ["fastapi>=0.115.12", "uvicorn>=0.34.0", "pydantic>=2.11.2", "PyYAML>=6.0.2", "tortoise-orm>=0.24.2", "ruamel-yaml>=0.18.10"]
 requires-python = ">=3.9"
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -31,12 +31,12 @@ distribution = true
 [tool.pdm.scripts]
 # ----------------------------------------------
 start = {call = "phi_cloud_server:main"} # 正常启动
-start-dev = {call = "phi_cloud_server:main", env = {DEV = "true"} } # dev启动
+dev = {call = "phi_cloud_server:main", env = {DEV = "true"} } # dev启动
 # ----------------------------------------------
-start-dns = {call = "phi_cloud_server.dns:main"} # 启动dns服务器
-start-cert = {call = "phi_cloud_server.dns.generate_certs:main"} # 启动证书生成
-start-dns-dev = {call = "phi_cloud_server.dns:main", env = {DEV = "true"} } # dev启动dns服务器
-start-cert-dev = {call = "phi_cloud_server.dns.generate_certs:main", env = {DEV = "true"} } # dev启动证书生成
+dns = {call = "phi_cloud_server.dns:main"} # 启动dns服务器
+cert = {call = "phi_cloud_server.dns.generate_certs:main"} # 启动证书生成
+dev-dns = {call = "phi_cloud_server.dns:main", env = {DEV = "true"} } # dev启动dns服务器
+dev-cert = {call = "phi_cloud_server.dns.generate_certs:main", env = {DEV = "true"} } # dev启动证书生成
 # ----------------------------------------------
 uninstall = "pdm remove" # 卸载
 install = "pdm add" # 安装

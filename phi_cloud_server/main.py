@@ -2,7 +2,7 @@ import asyncio
 import hashlib
 from contextlib import asynccontextmanager
 from re import match
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request, WebSocket
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -114,11 +114,13 @@ async def websocket_endpoint(
             await asyncio.sleep(30)
     except:
         await manager.disconnect(websocket)
+        return
 
 
-# ---------------------- 扩展接口 ----------------------
+# ---------------------- 扩展/taptap接口 ----------------------
 class RegisterUserBody(BaseModel):
     sessionToken: str = Field(default_factory=random.session_token)
+    name: str = None
     objectId: str = Field(default_factory=random.object_id)
 
     @field_validator("sessionToken")
@@ -155,6 +157,7 @@ class RegisterUserBody(BaseModel):
                                 "type": "string",
                                 "description": "新用户的唯一标识符",
                             },
+                            "name": {"type": "string", "description": "新用户昵称"},
                         },
                     },
                 }
@@ -162,13 +165,17 @@ class RegisterUserBody(BaseModel):
         },
         401: {
             "description": "未授权访问",
-            "content": {"application/json": {"example": {"detail": "No access"}}},
+            "content": {
+                "application/json": {"example": {"code": 401, "error": "No access"}}
+            },
         },
     },
 )
 @broadcast_route(manager)
 async def register_user(
-    Authorization: str = Header(...), body: RegisterUserBody = Body(None)
+    request: Request,
+    body: Optional[RegisterUserBody] = Body(None),
+    Authorization: str = Header(None),
 ):
     """
     注册新用户
@@ -177,13 +184,16 @@ async def register_user(
 
     需要在请求头中提供access_key进行身份验证
     """
-    if Authorization != config.server.access_key:
-        raise HTTPException(401, "No access")
+    if config.server.taptap_login:
+        pass
+    else:
+        if Authorization != config.server.access_key:
+            raise HTTPException(401, "No access")
 
     session_token = body.sessionToken
     user_id = body.objectId
 
-    await db.create_user(session_token, user_id)  # 移除不必要的时间参数
+    await db.create_user(session_token, user_id, body.name)  # 移除不必要的时间参数
     return JSONResponse(
         {"sessionToken": session_token, "objectId": user_id}, status_code=201
     )
@@ -275,7 +285,7 @@ async def create_file_token(request: Request):
     token = random.object_id()
     key = f"{prefix}/{random.object_id()}/{name}"
     object_id = random.object_id()
-    upload_url = str(request.base_url)[:-1]  # 注意,不能返回带/的url
+    upload_url = str(request.base_url)[:-1]  # 不能返回带/的url
     file_url = f"{str(request.base_url)}{key}"
 
     # 存储文件令牌信息
@@ -318,18 +328,35 @@ async def file_callback(request: Request):
     return JSONResponse({"result": True})  # 修改
 
 
+# 兼容部分查分API
 @app.get("/1.1/users/me")
 @broadcast_route(manager)
 async def get_current_user(request: Request):
     user_id = await verify_session(request, db)
     user_info = await db.get_user_info(user_id)
-    print(user_info)
     return JSONResponse(user_info)  # 修改
 
 
+# 兼容部分查分API
 @app.put("/1.1/users/{user_id}")
 @broadcast_route(manager)
-async def update_user(user_id: str, request: Request):
+async def update_user0(user_id: str, request: Request):
+    await verify_session(request, db)
+    data = await request.json()
+
+    if "nickname" not in data:
+        raise HTTPException(400, "Missing nickname field")
+
+    nickname = data["nickname"]
+    await db.update_user_info(user_id, {"nickname": nickname})
+
+    return JSONResponse({})  # 修改
+
+
+# 官方更新用户名
+@app.put("/1.1/classes/_User/{user_id}")
+@broadcast_route(manager)
+async def update_user1(user_id: str, request: Request):
     await verify_session(request, db)
     data = await request.json()
 
@@ -384,7 +411,6 @@ async def upload_part(
 @app.post("/buckets/rAK3Ffdi/objects/{encoded_key}/uploads/{upload_id}")
 @broadcast_route(manager)
 async def complete_upload(encoded_key: str, upload_id: str, request: Request):
-    print(str(request.base_url))
     raw_key = decode_base64_key(encoded_key)
     upload_session = await db.get_upload_session(upload_id)
     if not upload_session:
@@ -444,7 +470,7 @@ async def complete_upload(encoded_key: str, upload_id: str, request: Request):
 
 
 # ---------------------- 文件访问接口 ----------------------
-@app.get("/files/{file_id}", name="get_file")
+@app.get("/1.1/files/{file_id}", name="get_file")
 @broadcast_route(manager)
 async def get_file(file_id: str):
     file_info = await db.get_file(file_id)

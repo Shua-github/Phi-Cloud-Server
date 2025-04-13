@@ -2,44 +2,64 @@ from typing import Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
+from ruamel.yaml import YAML
+from ruamel.yaml.comments import CommentedMap
 
 from phi_cloud_server.utils import default_dir
 
+# 默认的阻塞域名映射
 BLOCKED_DOMAINS = {
     "rak3ffdi.cloud.tds1.tapapis.cn": "127.0.0.1",
 }
 
 
 class DBConfig(BaseModel):
-    db_url: str = f"""sqlite://{str(default_dir / "sqlite3.db")}"""
+    db_url: str = Field(
+        default=f"""sqlite://{str(default_dir / "sqlite3.db")}""",
+        description="数据库连接URL，默认为SQLite",
+    )
 
 
 class ServerConfig(BaseModel):
-    host: str = "0.0.0.0"
-    port: int = 443
-    access_key: str = Field(default="XBZecxb114514")  # 用于注册用户和监听事件鉴权的密钥
-    docs: bool = False
-    ssl_switch: bool = False
-    ssl_certfile: str = Field(default="")  # SSL证书路径
-    ssl_keyfile: str = Field(default="")  # SSL密钥路径
+    host: str = Field(
+        default="0.0.0.0", description="服务器监听地址，0.0.0.0表示监听所有网络接口"
+    )
+    port: int = Field(default=443, description="服务器监听端口")
+    access_key: str = Field(
+        default="XBZecxb114514", description="鉴权key，不要放到公开客户端上"
+    )
+    taptap_login: bool = Field(
+        default=False,
+        description="兼容游戏内taptap登录，开启后会不安全(可能遭受CC攻击)",
+    )
+    docs: bool = Field(default=False, description="是否开启API文档")
+    ssl_switch: bool = Field(default=False, description="SSL/TLS开关")
+    ssl_certfile: str = Field(default="", description="SSL证书文件路径")
+    ssl_keyfile: str = Field(default="", description="SSL密钥文件路径")
 
 
 class DNSServerConfig(BaseModel):
-    upstream_dns: str = "119.29.29.29"
-    blocked_domains: dict = Field(default=BLOCKED_DOMAINS)
-    port: int = 53
-    host: str = "0.0.0.0"
+    upstream_dns: str = Field(default="119.29.29.29", description="上游DNS服务器地址")
+    blocked_domains: dict = Field(
+        default=BLOCKED_DOMAINS, description="域名劫持名单，将指定域名解析到特定IP"
+    )
+    port: int = Field(default=53, description="DNS服务器监听端口")
+    host: str = Field(default="0.0.0.0", description="DNS服务器监听地址")
 
 
 class AppConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
-    server: ServerConfig = ServerConfig()
-    db: DBConfig = DBConfig()
-    server_dns: DNSServerConfig = DNSServerConfig()
+
+    server: ServerConfig = Field(
+        default_factory=ServerConfig, description="Web服务器配置"
+    )
+    db: DBConfig = Field(default_factory=DBConfig, description="数据库配置")
+    server_dns: DNSServerConfig = Field(
+        default_factory=DNSServerConfig, description="DNS服务器配置"
+    )
 
 
 def deep_merge(user_data: Any, default_data: Any) -> Any:
-    """深度合并用户数据和默认数据，补全缺失字段"""
     if isinstance(user_data, dict) and isinstance(default_data, dict):
         merged = user_data.copy()
         for key, default_value in default_data.items():
@@ -51,37 +71,71 @@ def deep_merge(user_data: Any, default_data: Any) -> Any:
     return user_data if user_data is not None else default_data
 
 
+def model_to_commented_map(model: BaseModel) -> CommentedMap:
+    commented = CommentedMap()
+    fields = fields = type(model).model_fields
+
+    for name, field in fields.items():
+        value = getattr(model, name)
+
+        if isinstance(value, BaseModel):
+            sub_map = model_to_commented_map(value)
+            commented[name] = sub_map
+        else:
+            commented[name] = value
+
+        if field.description:
+            commented.yaml_set_comment_before_after_key(name, before=field.description)
+
+    return commented
+
+
 def load_config() -> AppConfig:
-    """加载配置文件，自动补全缺失字段并写回"""
     config_path = default_dir / "config.yaml"
     config_dir = config_path.parent
-    print(f"Config.yml Path: {str(config_path)}")
-    print(f"Data Dir Path: {str(default_dir)}")
+    print(f"配置文件路径: {str(config_path)}")
+    print(f"数据目录: {str(default_dir)}")
     config_dir.mkdir(parents=True, exist_ok=True)
 
-    # 生成默认配置
     default_config = AppConfig()
-    default_dict = default_config.model_dump()
 
-    # 配置文件不存在时直接写入默认配置
     if not config_path.exists():
+        yaml_obj = YAML()
+        yaml_obj.indent(mapping=2, sequence=4, offset=2)
+        commented_map = model_to_commented_map(default_config)
+
         with open(config_path, "w", encoding="utf-8") as f:
-            yaml.dump(default_dict, f, allow_unicode=True)
+            f.write("# 应用程序配置文件\n")
+            f.write("# 注意: 修改后需要重启服务生效\n\n")
+            yaml_obj.dump(commented_map, f)
         return default_config
 
-    # 加载用户配置
     with open(config_path, "r", encoding="utf-8") as f:
         user_dict = yaml.safe_load(f) or {}
 
-    # 深度合并配置
+    default_dict = default_config.model_dump()
     merged_dict = deep_merge(user_dict, default_dict)
 
-    # 写回合并后的配置
-    with open(config_path, "w", encoding="utf-8") as f:
-        yaml.dump(merged_dict, f, allow_unicode=True, sort_keys=False)
+    user_server_dns = user_dict.get("server_dns", {})
+    user_blocked = user_server_dns.get("blocked_domains", "__ABSENT__")
+    if user_blocked != "__ABSENT__":
+        merged_dict["server_dns"]["blocked_domains"] = user_blocked
+    else:
+        merged_dict["server_dns"]["blocked_domains"] = default_dict["server_dns"][
+            "blocked_domains"
+        ]
 
-    # 返回合并后的配置实例
-    return AppConfig(**merged_dict)
+    merged_config = AppConfig(**merged_dict)
+    yaml_obj = YAML()
+    yaml_obj.indent(mapping=2, sequence=4, offset=2)
+    commented_map = model_to_commented_map(merged_config)
+
+    with open(config_path, "w", encoding="utf-8") as f:
+        f.write("# 应用程序配置文件\n")
+        f.write("# 注意: 修改后需要重启服务生效\n\n")
+        yaml_obj.dump(commented_map, f)
+
+    return merged_config
 
 
 config = load_config()

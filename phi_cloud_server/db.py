@@ -314,9 +314,13 @@ class TortoiseDB:
             user.nickname = update_data["nickname"]
             await user.save()
 
-    async def create_user(self, session_token: str, user_id: str) -> None:
+    async def create_user(
+        self, session_token: str, user_id: str, nickname: str = None
+    ) -> None:
+        if nickname is None:
+            nickname = f"User_{user_id[:8]}"
         user, _ = await User.update_or_create(
-            id=user_id, defaults={"nickname": f"User_{user_id[:8]}"}
+            id=user_id, defaults={"nickname": nickname}
         )
 
         await Session.create(
@@ -348,7 +352,6 @@ class TortoiseDB:
 
     async def get_all_game_saves_with_files(self, user_id: str) -> List[Dict]:
         saves = await self.get_all_game_saves(user_id)
-        print(saves)
         if not saves:
             return []
 

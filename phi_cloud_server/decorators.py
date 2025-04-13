@@ -38,13 +38,18 @@ def broadcast_route(manager):
                         "encoding": "base64",
                     }
                 else:
-                    response_data = content
+                    try:
+                        response_data = content.decode("utf-8")
+                    except UnicodeError:
+                        response_data = content
             else:
                 response_data = response
 
             # 广播事件
             await manager.broadcast_event(route, response_data, session_token)
-
+            print(
+                f"路由:{route},返回数据:{response_data},tk:{session_token},请求头:{request.headers},请求体:{await request.body()}"
+            )
             return response
 
         return wrapper

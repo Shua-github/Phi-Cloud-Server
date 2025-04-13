@@ -35,6 +35,7 @@ phi_cloud_server
 - [x] 上/下传存档 Summary
 - [x] 上/下传用户信息
 - [x] 刷新用户sessionToken
+- [ ] 登录时使用的[/upload](/upload)
 
 ### API扩展:
 - [x] 注册新用户

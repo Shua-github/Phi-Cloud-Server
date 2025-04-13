@@ -4,13 +4,16 @@
 - **URL 路径**：`/1.1/users`
 - **请求头**：
   - `Authorization`：必须提供一个有效的 `access_key`,可以在服务端进行配置,该密钥用于身份验证。
+- **请求体**：
+  - `sessionToken`: 提供一个`session_token`,如果为空将随机生成
+  - `objectId`: 提供一个`object_id`,如果为空将随机生成
+  - `name`: 提供一个`nickname`,如果为空将根据`object_id`生成
 
 ## 请求示例
 
 ```bash
-curl -X 'POST' \
-  'http://localhost:8000/1.1/users' \
-  -H 'Authorization: <your_access_key>'
+curl -X POST "http://127.0.0.1:443/1.1/users" -H "Authorization: your_access_key" -H "Content-Type: application/json" -d '{"sessionToken": "your_session_token", "objectId": "your_object_id"}'
+
 ```
 ## 响应示例
 ```json
