@@ -1,32 +1,44 @@
+"""主功能."""
+
 import asyncio
 import hashlib
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from re import match
-from typing import Dict, List, Optional, Set
+from typing import Annotated, Union
 
-from fastapi import Body, FastAPI, Header, HTTPException, Request, WebSocket
+from fastapi import (
+    Body,
+    FastAPI,
+    Header,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from phi_cloud_server.config import config
-from phi_cloud_server.db import TortoiseDB as DB
-
-# from phi_cloud_server.db0 import InMemoryDB as DB
+from phi_cloud_server.db import TortoiseDB
 from phi_cloud_server.decorators import broadcast_route
 from phi_cloud_server.utils import (
     decode_base64_key,
     dev_mode,
     get_session_token,
+    logger,
     random,
     verify_session,
 )
-from phi_cloud_server.utils.datetime import get_utc_iso
+from phi_cloud_server.utils.env import SESSION_TOKEN_LEN
+from phi_cloud_server.utils.time import get_utc_iso
 
-db = DB(config.db.db_url)
+db = TortoiseDB(config.db.db_url)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:  # noqa: ARG001
+    """启动和关闭函数."""
     # 启动
     await db.create()
     yield
@@ -44,7 +56,8 @@ app = FastAPI(
 
 
 @app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:  # noqa: ARG001
+    """错误捕获器."""
     return JSONResponse(
         status_code=exc.status_code,
         content={"code": exc.status_code, "error": exc.detail},
@@ -53,21 +66,28 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 
 # ---------------------- WebSocket管理器 ----------------------
 class ConnectionManager:
-    def __init__(self):
-        self.active_connections: Dict[
-            WebSocket, Set[str]
+    """ws管理器."""
+
+    def __init__(self) -> None:
+        """初始化."""
+        self.active_connections: dict[
+            WebSocket,
+            set[str],
         ] = {}  # websocket -> 订阅的路由集合
         self.lock = asyncio.Lock()
 
-    async def connect(self, websocket: WebSocket, routes: List[str]):
+    async def connect(self, websocket: WebSocket, routes: list[str]) -> None:
+        """连接."""
         await websocket.accept()
         self.active_connections[websocket] = set(routes)
 
-    async def disconnect(self, websocket: WebSocket):
+    async def disconnect(self, websocket: WebSocket) -> None:
+        """断开."""
         if websocket in self.active_connections:
             del self.active_connections[websocket]
 
-    async def broadcast_event(self, route: str, data: dict, session_token: str):
+    async def broadcast_event(self, route: str, data: dict, session_token: str) -> None:
+        """广播事件."""
         async with self.lock:
             for ws, routes in self.active_connections.items():
                 if route in routes:
@@ -82,10 +102,17 @@ class ConnectionManager:
                                     "raw_response": data,
                                     "timestamp": get_utc_iso(),
                                 },
-                            }
+                            },
                         )
-                    except:
+                    except WebSocketDisconnect as e:
+                        logger.info(f"WebSocket 已断开:{e!r}")
+                    except TimeoutError as e:
+                        logger.warning(f"WebSocket 连接已超时:{e!r}")
+                    except ConnectionResetError as e:
+                        logger.warning(f"WebSocket 连接已重置:{e!r}")
+                    except Exception as e:  # noqa: BLE001
                         await self.disconnect(ws)
+                        logger.error(f"发生未知错误:{e!r}")
 
 
 manager = ConnectionManager()
@@ -93,10 +120,11 @@ manager = ConnectionManager()
 
 @app.websocket("/ws/event")
 async def websocket_endpoint(
-    websocket: WebSocket, routes: str = None, Authorization: str = Header(...)
-):
-    """
-    订阅响应事件WebSocket连接
+    websocket: WebSocket,
+    routes: Union[str, None] = None,  # noqa: FA100
+    Authorization: str = Header(...),  # noqa: N803
+) -> None:
+    """订阅响应事件WebSocket连接.
 
     详细说明:
     - routes: 要订阅的路由列表,以逗号分隔
@@ -112,27 +140,40 @@ async def websocket_endpoint(
         while True:
             await websocket.receive_text()
             await asyncio.sleep(30)
-    except:
-        await manager.disconnect(websocket)
-        return
+    except WebSocketDisconnect as e:
+        logger.info(f"WebSocket 已断开:{e!r}")
+    except TimeoutError as e:
+        logger.warning(f"WebSocket 连接已超时:{e!r}")
+    except ConnectionResetError as e:
+        logger.warning(f"WebSocket 连接已重置:{e!r}")
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"发生未知错误:{e!r}")
 
 
 # ---------------------- 扩展/taptap接口 ----------------------
 class RegisterUserBody(BaseModel):
-    sessionToken: str = Field(default_factory=random.session_token)
+    """注册用户请求体定义."""
+
+    sessionToken: str = Field(default_factory=random.session_token)  # noqa: N815
     name: str = None
-    objectId: str = Field(default_factory=random.object_id)
+    objectId: str = Field(default_factory=random.object_id)  # noqa: N815
 
     @field_validator("sessionToken")
     @classmethod
-    def check_sessionToken(cls, value: str) -> str:
-        if len(value) != 25:
-            raise ValueError("sessionToken长度错误，应该是25位")
+    def check_session_token(cls, value: str) -> str:
+        """校验tk."""
+        if len(value) != SESSION_TOKEN_LEN:
+            msg = f"sessionToken长度错误,应该是{SESSION_TOKEN_LEN}位"
+            raise ValueError(msg)
 
-        if not match(r"^[0-9a-z]{25}$", value):
-            raise ValueError("sessionToken不合法,只能有小写字母和数字")
+        if not match(rf"^[0-9a-z]{{{SESSION_TOKEN_LEN}}}$", value):
+            msg = "sessionToken不合法,只能有小写字母和数字"
+            raise ValueError(msg)
 
         return value
+
+
+RegisterUserBody.model_rebuild()
 
 
 @app.post(
@@ -160,25 +201,24 @@ class RegisterUserBody(BaseModel):
                             "name": {"type": "string", "description": "新用户昵称"},
                         },
                     },
-                }
+                },
             },
         },
         401: {
             "description": "未授权访问",
             "content": {
-                "application/json": {"example": {"code": 401, "error": "No access"}}
+                "application/json": {"example": {"code": 401, "error": "No access"}},
             },
         },
     },
 )
 @broadcast_route(manager)
 async def register_user(
-    request: Request,
-    body: Optional[RegisterUserBody] = Body(None),
-    Authorization: str = Header(None),
-):
-    """
-    注册新用户
+    request: Request,  # noqa: ARG001
+    body: Annotated[Union[RegisterUserBody, None], Body()] = None,  # noqa: FA100
+    Authorization: Annotated[Union[str, None], Header()] = None,  # noqa: FA100, N803
+) -> JSONResponse:
+    """注册新用户.
 
     该接口用于创建新用户并返回会话令牌
 
@@ -186,16 +226,16 @@ async def register_user(
     """
     if config.server.taptap_login:
         pass
-    else:
-        if Authorization != config.server.access_key:
-            raise HTTPException(401, "No access")
+    elif Authorization != config.server.access_key:
+        raise HTTPException(401, "No access")
 
     session_token = body.sessionToken
     user_id = body.objectId
 
     await db.create_user(session_token, user_id, body.name)  # 移除不必要的时间参数
     return JSONResponse(
-        {"sessionToken": session_token, "objectId": user_id}, status_code=201
+        {"sessionToken": session_token, "objectId": user_id},
+        status_code=201,
     )
 
 
@@ -204,10 +244,12 @@ async def register_user(
 
 @app.put("/1.1/users/{object_id}/refreshSessionToken")
 @broadcast_route(manager)
-async def refresh_session_token(object_id):
+async def refresh_session_token(object_id: str) -> JSONResponse:
+    """刷新玩家tk路由."""
     new_session_token = random.session_token()
     result = await db.refresh_session_token(
-        user_id=object_id, new_session_token=new_session_token
+        user_id=object_id,
+        new_session_token=new_session_token,
     )
     if result:
         return JSONResponse(
@@ -215,15 +257,15 @@ async def refresh_session_token(object_id):
                 "objectId": object_id,
                 "sessionToken": new_session_token,
                 "updatedAt": get_utc_iso(),
-            }
+            },
         )
-    else:
-        raise HTTPException(404, "objectId not found or empty")
+    raise HTTPException(404, "objectId not found or empty")
 
 
 @app.get("/1.1/classes/_GameSave")
 @broadcast_route(manager)
-async def get_game_save(request: Request):
+async def get_game_save(request: Request) -> JSONResponse:
+    """获取玩家存档路由."""
     user_id = await verify_session(request, db)
     saves = await db.get_all_game_saves_with_files(user_id)
     return JSONResponse({"results": saves})
@@ -231,7 +273,8 @@ async def get_game_save(request: Request):
 
 @app.post("/1.1/classes/_GameSave")
 @broadcast_route(manager)
-async def create_game_save(request: Request):
+async def create_game_save(request: Request) -> JSONResponse:
+    """创建玩家存档路由."""
     user_id = await verify_session(request, db)
     data = await request.json()
     new_save = {
@@ -244,7 +287,7 @@ async def create_game_save(request: Request):
     try:
         result = await db.create_game_save(user_id, new_save)
     except ValueError as e:
-        raise HTTPException(400, detail=str(e))
+        raise HTTPException(400, detail=str(e)) from e
     return JSONResponse(
         {"objectId": result["objectId"], "createdAt": result["createdAt"]},
         status_code=201,
@@ -253,7 +296,8 @@ async def create_game_save(request: Request):
 
 @app.put("/1.1/classes/_GameSave/{object_id}")
 @broadcast_route(manager)
-async def update_game_save(object_id: str, request: Request):
+async def update_game_save(object_id: str, request: Request) -> JSONResponse:
+    """更新玩家存档路由."""
     data = await request.json()
     current_time = get_utc_iso()
     data["updatedAt"] = current_time
@@ -265,12 +309,8 @@ async def update_game_save(object_id: str, request: Request):
 
 @app.post("/1.1/fileTokens")
 @broadcast_route(manager)
-async def create_file_token(request: Request):
-    """
-    创建文件上传令牌
-
-    客户端请求文件上传令牌时调用此接口。
-    """
+async def create_file_token(request: Request) -> JSONResponse:
+    """创建文件上传令牌路由."""
     session_token = get_session_token(request)  # 获取 session_token
     data = await request.json()
 
@@ -279,18 +319,22 @@ async def create_file_token(request: Request):
     prefix = data.get("prefix", "gamesaves")
     meta_data = data.get("metaData", {})
     size = meta_data.get("size", 0)
-    checksum = meta_data.get("_checksum", hashlib.md5(b"").hexdigest())
+    checksum = meta_data.get("_checksum", hashlib.md5(b"").hexdigest())  # noqa: S324
 
     # 生成必要的标识符
     token = random.object_id()
     key = f"{prefix}/{random.object_id()}/{name}"
     object_id = random.object_id()
     upload_url = str(request.base_url)[:-1]  # 不能返回带/的url
-    file_url = f"{str(request.base_url)}{key}"
+    file_url = f"{request.base_url!s}{key}"
 
     # 存储文件令牌信息
     await db.create_file_token(
-        token, key, object_id, file_url, get_utc_iso(), session_token
+        token,
+        key,
+        object_id,
+        file_url,
+        session_token,
     )  # 添加 session_token
 
     # 构造响应数据
@@ -317,21 +361,24 @@ async def create_file_token(request: Request):
 
 @app.delete("/1.1/files/{file_id}")
 @broadcast_route(manager)
-async def delete_file(file_id: str):
+async def delete_file(file_id: str) -> Response:
+    """删除文件路由."""
     if not await db.delete_file(file_id):
         raise HTTPException(404, detail="File not found")
     return Response(status_code=204)
 
 
 @app.post("/1.1/fileCallback")
-async def file_callback(request: Request):
+async def file_callback(request: Request) -> JSONResponse:  # noqa: ARG001
+    """文件回调路由(有...有用吗)."""
     return JSONResponse({"result": True})  # 修改
 
 
 # 兼容部分查分API
 @app.get("/1.1/users/me")
 @broadcast_route(manager)
-async def get_current_user(request: Request):
+async def get_current_user(request: Request) -> JSONResponse:
+    """兼容性."""
     user_id = await verify_session(request, db)
     user_info = await db.get_user_info(user_id)
     return JSONResponse(user_info)  # 修改
@@ -340,7 +387,8 @@ async def get_current_user(request: Request):
 # 兼容部分查分API
 @app.put("/1.1/users/{user_id}")
 @broadcast_route(manager)
-async def update_user0(user_id: str, request: Request):
+async def update_user0(user_id: str, request: Request) -> JSONResponse:
+    """兼容性."""
     await verify_session(request, db)
     data = await request.json()
 
@@ -356,7 +404,8 @@ async def update_user0(user_id: str, request: Request):
 # 官方更新用户名
 @app.put("/1.1/classes/_User/{user_id}")
 @broadcast_route(manager)
-async def update_user1(user_id: str, request: Request):
+async def update_user1(user_id: str, request: Request) -> JSONResponse:
+    """更新用户名接口."""
     await verify_session(request, db)
     data = await request.json()
 
@@ -372,7 +421,8 @@ async def update_user1(user_id: str, request: Request):
 # ---------------------- 七牛云接口 ----------------------
 @app.post("/buckets/rAK3Ffdi/objects/{encoded_key}/uploads")
 @broadcast_route(manager)
-async def start_upload(encoded_key: str):  # 移除 request 参数
+async def start_upload(encoded_key: str) -> JSONResponse:
+    """七牛云开始上传接口."""
     raw_key = decode_base64_key(encoded_key)
     file_token = await db.get_file_token_by_key(raw_key)  # 从数据库获取 file_token
     if not file_token:
@@ -381,7 +431,9 @@ async def start_upload(encoded_key: str):  # 移除 request 参数
     session_token = file_token["session_token"]  # 从 file_token 获取 session_token
     upload_id = random.object_id()
     await db.create_upload_session(
-        upload_id, raw_key, session_token
+        upload_id,
+        raw_key,
+        session_token,
     )  # 使用 session_token
     return JSONResponse({"uploadId": upload_id})
 
@@ -393,8 +445,8 @@ async def upload_part(
     upload_id: str,
     part_num: int,
     request: Request,
-    content_length: int = Header(...),
-):
+) -> JSONResponse:
+    """七牛云上传文件分片接口."""
     raw_key = decode_base64_key(encoded_key)
     upload_session = await db.get_upload_session(upload_id)
     if not upload_session:
@@ -403,14 +455,19 @@ async def upload_part(
         raise HTTPException(400, "Key mismatch")
 
     data = await request.body()
-    etag = hashlib.md5(data).hexdigest()
+    etag = hashlib.md5(data).hexdigest()  # noqa: S324
     await db.add_upload_part(upload_id, part_num, data, etag)
     return JSONResponse({"etag": etag})
 
 
 @app.post("/buckets/rAK3Ffdi/objects/{encoded_key}/uploads/{upload_id}")
 @broadcast_route(manager)
-async def complete_upload(encoded_key: str, upload_id: str, request: Request):
+async def complete_upload(
+    encoded_key: str,
+    upload_id: str,
+    request: Request,
+) -> JSONResponse:
+    """七牛云上传完成接口."""
     raw_key = decode_base64_key(encoded_key)
     upload_session = await db.get_upload_session(upload_id)
     if not upload_session:
@@ -445,7 +502,7 @@ async def complete_upload(encoded_key: str, upload_id: str, request: Request):
         raise HTTPException(400, "No data to save")
 
     metadata = {
-        "_checksum": hashlib.md5(combined_data).hexdigest(),
+        "_checksum": hashlib.md5(combined_data).hexdigest(),  # noqa: S324
         "size": len(combined_data),
     }
     file_url = str(request.url_for("get_file", file_id=file_id))
@@ -472,10 +529,12 @@ async def complete_upload(encoded_key: str, upload_id: str, request: Request):
 # ---------------------- 文件访问接口 ----------------------
 @app.get("/1.1/files/{file_id}", name="get_file")
 @broadcast_route(manager)
-async def get_file(file_id: str):
+async def get_file(file_id: str) -> JSONResponse:
+    """获取文件接口."""
     file_info = await db.get_file(file_id)
     if not file_info or not file_info["data"]:
         raise HTTPException(404, detail="File not found or empty")
     return StreamingResponse(
-        iter([file_info["data"]]), media_type="application/octet-stream"
+        iter([file_info["data"]]),
+        media_type="application/octet-stream",
     )

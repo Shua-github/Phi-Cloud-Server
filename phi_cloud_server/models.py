@@ -1,21 +1,25 @@
+"""模型存放."""
+
 from tortoise import fields, models
 
 
 # Tortoise ORM 模型定义
 class User(models.Model):
-    """用户模型"""
+    """用户模型."""
 
     id = fields.CharField(pk=True, max_length=36)  # 修改为字符串类型
-    nickname = fields.CharField(max_length=255)
+    nickname = fields.CharField(max_length=50)
     created_at = fields.DatetimeField(auto_now_add=True)
     updated_at = fields.DatetimeField(auto_now=True)
 
     class Meta:
+        """元信息."""
+
         table = "users"
 
 
 class Session(models.Model):
-    """用户会话模型"""
+    """用户会话模型."""
 
     id = fields.CharField(pk=True, max_length=36)  # 修改为字符串类型
     session_token = fields.CharField(max_length=25, unique=True)
@@ -23,11 +27,13 @@ class Session(models.Model):
     created_at = fields.DatetimeField(auto_now_add=True)
 
     class Meta:
+        """元信息."""
+
         table = "sessions"
 
 
 class File(models.Model):
-    """文件模型"""
+    """文件模型."""
 
     id = fields.CharField(pk=True, max_length=36)  # 修改为字符串类型
     data = fields.BinaryField(null=True)  # 确保允许 data 为空
@@ -36,11 +42,13 @@ class File(models.Model):
     created_at = fields.DatetimeField(auto_now_add=True)
 
     class Meta:
+        """元信息."""
+
         table = "files"
 
 
 class FileToken(models.Model):
-    """文件令牌模型"""
+    """文件令牌模型."""
 
     id = fields.CharField(pk=True, max_length=36)  # 修改为字符串类型
     token = fields.CharField(max_length=255, unique=True)
@@ -48,30 +56,36 @@ class FileToken(models.Model):
     file = fields.ForeignKeyField("models.File", related_name="tokens")
     url = fields.CharField(max_length=255)
     session_token = fields.CharField(
-        max_length=25, null=True
+        max_length=25,
+        null=True,
     )  # 添加 session_token 字段
     created_at = fields.DatetimeField(auto_now_add=True)
 
     class Meta:
+        """元信息."""
+
         table = "file_tokens"
 
 
 class UploadSession(models.Model):
-    """上传会话模型"""
+    """上传会话模型."""
 
     id = fields.CharField(pk=True, max_length=36)  # 修改为字符串类型
     key = fields.CharField(max_length=255)
     session_token = fields.CharField(
-        max_length=25, null=True
+        max_length=25,
+        null=True,
     )  # 添加 session_token 字段
     created_at = fields.DatetimeField(auto_now_add=True)
 
     class Meta:
+        """元信息."""
+
         table = "upload_sessions"
 
 
 class UploadPart(models.Model):
-    """上传分片模型"""
+    """上传分片模型."""
 
     id = fields.CharField(pk=True, max_length=36)  # 修改为字符串类型
     session = fields.ForeignKeyField("models.UploadSession", related_name="parts")
@@ -80,12 +94,14 @@ class UploadPart(models.Model):
     etag = fields.CharField(max_length=255)
 
     class Meta:
+        """元信息."""
+
         table = "upload_parts"
         unique_together = (("session", "part_num"),)
 
 
 class GameSave(models.Model):
-    """游戏存档模型"""
+    """游戏存档模型."""
 
     id = fields.CharField(pk=True, max_length=36)  # 修改为字符串类型
     user = fields.ForeignKeyField("models.User", related_name="game_saves")
@@ -95,4 +111,6 @@ class GameSave(models.Model):
     updated_at = fields.DatetimeField(auto_now=True)
 
     class Meta:
+        """元信息."""
+
         table = "game_saves"

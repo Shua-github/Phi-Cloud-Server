@@ -1,6 +1,9 @@
+"""管理数据库."""
+
+from __future__ import annotations
+
 import uuid
 from datetime import datetime
-from typing import Dict, List, Optional
 
 from tortoise.transactions import atomic
 
@@ -13,36 +16,42 @@ from phi_cloud_server.models import (
     UploadSession,
     User,
 )
-from phi_cloud_server.utils.datetime import get_utc_iso
+from phi_cloud_server.utils.time import get_utc_iso
 
 
 # TortoiseDB 实现
 class TortoiseDB:
-    def __init__(self, db_url: str = "sqlite://:memory:"):
+    """Tortoise数据库."""
+
+    def __init__(self, db_url: str = "sqlite://:memory:") -> None:
+        """传入数据库url."""
         self.db_url = db_url
 
-    async def create(self):
-        """初始化数据库连接"""
+    async def create(self) -> None:
+        """初始化数据库连接."""
         from tortoise import Tortoise
 
         await Tortoise.init(
-            db_url=self.db_url, modules={"models": ["phi_cloud_server.models"]}
+            db_url=self.db_url,
+            modules={"models": ["phi_cloud_server.models"]},
         )
         await Tortoise.generate_schemas()
 
-    async def close(self):
-        """关闭数据库连接"""
+    async def close(self) -> None:
+        """关闭数据库连接."""
         from tortoise import Tortoise
 
         await Tortoise.close_connections()
 
-    async def get_user_id(self, session_token: str) -> Optional[str]:
+    async def get_user_id(self, session_token: str) -> str:
+        """获取用户id."""
         session = await Session.filter(session_token=session_token).first()
         if session:
             return str(session.user_id)
         return None
 
     async def refresh_session_token(self, new_session_token: str, user_id: str) -> bool:
+        """重置用户tk."""
         session = await Session.filter(user_id=user_id).first()
 
         if not session:
@@ -55,7 +64,8 @@ class TortoiseDB:
         return True
 
     @atomic()
-    async def update_game_save(self, object_id: str, update_data: Dict) -> bool:
+    async def update_game_save(self, object_id: str, update_data: dict) -> bool:
+        """更新游戏存档."""
         game_save = await GameSave.get_or_none(id=object_id)
         if not game_save:
             return False
@@ -71,14 +81,15 @@ class TortoiseDB:
         return True
 
     @atomic()
-    async def create_game_save(self, user_id: str, save_data: Dict) -> Dict:
+    async def create_game_save(self, user_id: str, save_data: dict) -> dict:
+        """创建游戏存档."""
         file_data = save_data.get("gameFile", {})
         file_id = file_data.get("objectId")
 
-        # 修复：确保使用实际保存的文件 ID
         file = await File.get_or_none(id=file_id) if file_id else None
         if not file:
-            raise ValueError(f"File with ID {file_id} not found")
+            msg = "File not found"
+            raise ValueError(msg)
 
         object_id = save_data.get("objectId", str(uuid.uuid4()))
         now = get_utc_iso()
@@ -90,7 +101,7 @@ class TortoiseDB:
             save_data=save_data,
         )
 
-        result = {
+        return {
             "objectId": str(game_save.id),
             "gameFile": {
                 "__type": "File",
@@ -103,11 +114,10 @@ class TortoiseDB:
             **save_data,
         }
 
-        return result
-
-    async def get_game_save_by_id(self, object_id: str) -> Optional[Dict]:
+    async def get_game_save_by_id(self, object_id: str) -> dict:
+        """使用id获取游戏存档."""
         game_save = await GameSave.get_or_none(id=object_id).prefetch_related(
-            "game_file"
+            "game_file",
         )
         if not game_save:
             return None
@@ -117,7 +127,7 @@ class TortoiseDB:
         if "_checksum" not in meta_data:
             meta_data["_checksum"] = ""
 
-        result = {
+        return {
             "objectId": str(game_save.id),
             "gameFile": {
                 "__type": "File",
@@ -130,9 +140,8 @@ class TortoiseDB:
             **game_save.save_data,
         }
 
-        return result
-
-    async def get_latest_game_save(self, user_id: str) -> Optional[Dict]:
+    async def get_latest_game_save(self, user_id: str) -> dict:
+        """获取最新的游戏存档."""
         game_save = (
             await GameSave.filter(user_id=user_id)
             .prefetch_related("game_file")
@@ -147,7 +156,7 @@ class TortoiseDB:
         if "_checksum" not in meta_data:
             meta_data["_checksum"] = ""
 
-        result = {
+        return {
             "objectId": str(game_save.id),
             "gameFile": {
                 "__type": "File",
@@ -160,17 +169,21 @@ class TortoiseDB:
             **game_save.save_data,
         }
 
-        return result
-
     async def save_file(
-        self, file_id: str, data: bytes, url: str, metadata: dict
+        self,
+        file_id: str,
+        data: bytes,
+        url: str,
+        metadata: dict,
     ) -> None:
+        """保存文件."""
         await File.update_or_create(
             id=file_id,
             defaults={"data": data, "meta_data": metadata, "url": url},
         )
 
-    async def get_file(self, file_id: str) -> Optional[Dict]:
+    async def get_file(self, file_id: str) -> dict:
+        """获取文件."""
         file = await File.get_or_none(id=file_id)
         if not file:
             return None
@@ -183,6 +196,7 @@ class TortoiseDB:
         }
 
     async def delete_file(self, file_id: str) -> bool:
+        """删除文件."""
         file = await File.get_or_none(id=file_id)
         if not file:
             return False
@@ -196,15 +210,15 @@ class TortoiseDB:
         key: str,
         object_id: str,
         url: str,
-        created_at: str,
         session_token: str,
     ) -> None:
+        """创建文件令牌."""
         file = await File.get_or_none(id=object_id)
         if not file:
             file = await File.create(id=object_id, data=b"", meta_data={}, url=url)
 
         # 标准化时间字符串格式
-        dt = datetime.fromisoformat(created_at.replace("Z", ""))
+        dt = datetime.fromisoformat(get_utc_iso().replace("Z", ""))
 
         await FileToken.create(
             id=uuid.uuid4(),
@@ -216,7 +230,8 @@ class TortoiseDB:
             session_token=session_token,  # 存储 session_token
         )
 
-    async def get_file_token_by_token(self, token: str) -> Optional[Dict]:
+    async def get_file_token_by_token(self, token: str) -> dict:
+        """从令牌获取文件令牌."""
         file_token = await FileToken.get_or_none(token=token).prefetch_related("file")
         if not file_token:
             return None
@@ -229,7 +244,8 @@ class TortoiseDB:
             "createdAt": file_token.created_at.isoformat() + "Z",
         }
 
-    async def get_file_token_by_key(self, key: str) -> Optional[Dict]:
+    async def get_file_token_by_key(self, key: str) -> dict:
+        """从密钥获取文件令牌."""
         file_token = await FileToken.get_or_none(key=key).prefetch_related("file")
         if not file_token:
             return None
@@ -243,20 +259,26 @@ class TortoiseDB:
             "session_token": file_token.session_token,  # 返回 session_token
         }
 
-    async def get_object_id_by_key(self, key: str) -> Optional[str]:
+    async def get_object_id_by_key(self, key: str) -> str:
+        """从密钥获取文件id."""
         file_token = await FileToken.get_or_none(key=key).prefetch_related("file")
         if not file_token:
             return None
         return str(file_token.file.id)  # 返回关联的 File ID
 
     async def create_upload_session(
-        self, upload_id: str, key: str, session_token: str
+        self,
+        upload_id: str,
+        key: str,
+        session_token: str,
     ) -> None:
+        """创建更新上下文."""
         await UploadSession.create(id=upload_id, key=key, session_token=session_token)
 
-    async def get_upload_session(self, upload_id: str) -> Optional[Dict]:
+    async def get_upload_session(self, upload_id: str) -> dict:
+        """获取更新上下文."""
         session = await UploadSession.get_or_none(id=upload_id).prefetch_related(
-            "parts"
+            "parts",
         )
         if not session:
             return None
@@ -273,8 +295,13 @@ class TortoiseDB:
         }
 
     async def add_upload_part(
-        self, upload_id: str, part_num: int, data: bytes, etag: str
+        self,
+        upload_id: str,
+        part_num: int,
+        data: bytes,
+        etag: str,
     ) -> None:
+        """添加上传分片."""
         session = await UploadSession.get_or_none(id=upload_id)
         if not session:
             return
@@ -287,13 +314,15 @@ class TortoiseDB:
         )
 
     async def delete_upload_session(self, upload_id: str) -> None:
+        """删除上传上下文."""
         session = await UploadSession.get_or_none(id=upload_id)
         if not session:
             return
 
         await session.delete()
 
-    async def get_user_info(self, user_id: str) -> Dict:
+    async def get_user_info(self, user_id: str) -> dict:
+        """获取用户信息."""
         user = await User.get_or_none(id=user_id)
         if not user:
             user = await User.create(id=user_id, nickname=f"User_{user_id[:8]}")
@@ -305,7 +334,8 @@ class TortoiseDB:
             "updatedAt": user.updated_at.isoformat() + "Z",
         }
 
-    async def update_user_info(self, user_id: str, update_data: Dict) -> None:
+    async def update_user_info(self, user_id: str, update_data: dict) -> None:
+        """更新用户信息."""
         user = await User.get_or_none(id=user_id)
         if not user:
             user = await User.create(id=user_id, nickname=f"User_{user_id[:8]}")
@@ -315,22 +345,30 @@ class TortoiseDB:
             await user.save()
 
     async def create_user(
-        self, session_token: str, user_id: str, nickname: str = None
+        self,
+        session_token: str,
+        user_id: str,
+        nickname: str | None = None,
     ) -> None:
+        """创建用户."""
         if nickname is None:
             nickname = f"User_{user_id[:8]}"
         user, _ = await User.update_or_create(
-            id=user_id, defaults={"nickname": nickname}
+            id=user_id,
+            defaults={"nickname": nickname},
         )
 
         await Session.create(
-            id=uuid.uuid4(), session_token=session_token, user_id=user.id
+            id=uuid.uuid4(),
+            session_token=session_token,
+            user_id=user.id,
         )
 
-    async def get_all_game_saves(self, user_id: str) -> List[Dict]:
+    async def get_all_game_saves(self, user_id: str) -> list[dict]:
+        """获取玩家的全部存档."""
         user_uuid = user_id
         game_saves = await GameSave.filter(user_id=user_uuid).prefetch_related(
-            "game_file"
+            "game_file",
         )
 
         results = []
@@ -350,14 +388,15 @@ class TortoiseDB:
 
         return results
 
-    async def get_all_game_saves_with_files(self, user_id: str) -> List[Dict]:
+    async def get_all_game_saves_with_files(self, user_id: str) -> list[dict]:
+        """获取带有文件的玩家全部存档."""
         saves = await self.get_all_game_saves(user_id)
         if not saves:
             return []
 
         file_infos = {
             save["gameFile"]["objectId"]: await self.get_file(
-                save["gameFile"]["objectId"]
+                save["gameFile"]["objectId"],
             )
             for save in saves
             if save["gameFile"].get("objectId")  # 确保 objectId 存在
@@ -381,7 +420,7 @@ class TortoiseDB:
                     "metaData": meta_data,
                     "url": file_info.get("url", ""),  # 修复 URL
                     "objectId": file_info.get("objectId"),  # 修复 objectId
-                }
+                },
             )
 
         return saves
